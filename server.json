@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.akshitanchan/applesauce",
+  "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts and more on your Mac.",
+  "repository": {
+    "url": "https://github.com/akshitanchan/applesauce",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "applesauce",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

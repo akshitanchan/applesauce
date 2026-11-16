@@ -16,9 +16,11 @@ case "${1:-}" in
   plist="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$root/Support/Info.plist")"
   npm_version="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$root/npm/package.json")"
   mcpb_version="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$root/mcpb/manifest.json")"
+  # server.json has two version fields (the server and its npm package). Both must match.
+  server_versions="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$root/server.json" | sort -u | tr '\n' ' ' | sed 's/ $//')"
   status=0
   printf '%-34s %s\n' "Sources/AppleSauceCore/Version.swift" "$version"
-  for entry in "Support/Info.plist:$plist" "npm/package.json:$npm_version" "mcpb/manifest.json:$mcpb_version"; do
+  for entry in "Support/Info.plist:$plist" "npm/package.json:$npm_version" "mcpb/manifest.json:$mcpb_version" "server.json:$server_versions"; do
     file="${entry%%:*}"
     found="${entry#*:}"
     printf '%-34s %s\n' "$file" "${found:-missing}"

@@ -22,6 +22,12 @@
     }
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akshitanchan/applesauce"
+  },
+  "homepage": "https://github.com/akshitanchan/applesauce",
+  "support": "https://github.com/akshitanchan/applesauce/issues",
   "keywords": [
     "mcp",
     "model-context-protocol",

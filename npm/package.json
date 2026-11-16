@@ -1,6 +1,7 @@
 {
   "name": "applesauce",
   "version": "0.1.0",
+  "mcpName": "io.github.akshitanchan/applesauce",
   "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts, Shortcuts, Spotlight and more on macOS. A native Swift binary.",
   "license": "MIT",
   "author": "Akshit Anchan",
@@ -37,10 +38,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "TODO: set to the GitHub repository URL when the repository exists"
+    "url": "git+https://github.com/akshitanchan/applesauce.git"
   },
-  "homepage": "TODO: set to the GitHub repository URL when the repository exists",
+  "homepage": "https://github.com/akshitanchan/applesauce#readme",
   "bugs": {
-    "url": "TODO: set to the GitHub issues URL when the repository exists"
+    "url": "https://github.com/akshitanchan/applesauce/issues"
   }
 }
