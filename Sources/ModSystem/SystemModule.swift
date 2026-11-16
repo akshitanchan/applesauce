@@ -1,22 +1,29 @@
 import AppleSauceCore
 import Foundation
 import MCP
+
+#if os(macOS)
 import UniformTypeIdentifiers
+#endif
 
 /// System tools: clipboard, notifications and opening things. The work goes through a `SystemStore`.
 public struct SystemModule: Module {
-    public let name = "system"
+    public static let moduleName = "system"
+    public var name: String { Self.moduleName }
     /// System tools need no permission.
     /// The notification script talks to no other app, so it needs no Automation permission.
-    public let permissions: [Permission] = []
+    public static let requiredPermissions: [Permission] = []
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any SystemStore
     let backendTimeout: Double
 
     /// The real module.
+    #if os(macOS)
     public init() {
         self.init(store: AppKitSystemStore())
     }
+    #endif
 
     init(store: any SystemStore, backendTimeout: Double = 30) {
         self.store = store
@@ -32,7 +39,9 @@ public struct SystemModule: Module {
         .object(["type": .string(type), "description": .string(description)])
     }
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "get_clipboard",
@@ -133,11 +142,13 @@ public struct SystemModule: Module {
         "dmg", "scpt", "scptd", "applescript", "terminal", "jar", "webloc", "inetloc", "fileloc",
     ]
 
+    #if os(macOS)
     /// Content types that `open` refuses.
     /// `UTType` has no constant for installer packages, so that one comes from its identifier.
     static let blockedTypes: [UTType] =
         [.application, .executable, .applicationBundle, .unixExecutable, .shellScript, .script]
         + [UTType("com.apple.installer-package-archive")].compactMap { $0 }
+    #endif
 
     /// True when the item is an app, an executable, an installer, a script or a bundle.
     static func isRunnable(_ url: URL) -> Bool {
@@ -145,11 +156,15 @@ public struct SystemModule: Module {
         for candidate in [url, resolved] {
             if blockedExtensions.contains(candidate.pathExtension.lowercased()) { return true }
         }
+        #if os(macOS)
         let keys: Set<URLResourceKey> = [.contentTypeKey, .isPackageKey, .isApplicationKey]
         guard let values = try? resolved.resourceValues(forKeys: keys) else { return false }
         if values.isPackage == true || values.isApplication == true { return true }
         guard let type = values.contentType else { return false }
         return blockedTypes.contains { type.conforms(to: $0) } || type.conforms(to: .bundle)
+        #else
+        return false
+        #endif
     }
 
     /// Checks the 'path' argument. The item must exist and must not be runnable.

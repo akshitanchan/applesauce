@@ -1,0 +1,45 @@
+name: linux
+
+# Builds the Linux Docker image and checks that it starts, lists every tool,
+# and answers UNSUPPORTED_PLATFORM for tool calls.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t applesauce-linux .
+      - name: Smoke test
+        run: |
+          { printf '%s\n' \
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+              '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+              '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"doctor","arguments":{}}}' \
+              '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_calendars","arguments":{}}}'; sleep 3; } \
+            | docker run -i --rm applesauce-linux | tee out.jsonl
+          python3 - <<'PY'
+          import json
+          replies = {}
+          for line in open("out.jsonl"):
+              line = line.strip()
+              if line.startswith("{"):
+                  message = json.loads(line)
+                  if "id" in message:
+                      replies[message["id"]] = message
+          tools = [tool["name"] for tool in replies[2]["result"]["tools"]]
+          print("tools:", len(tools))
+          assert "doctor" in tools and "list_calendars" in tools and len(tools) >= 40, tools
+          doctor = replies[3]["result"]["content"][0]["text"]
+          assert "unsupported" in doctor, doctor
+          call = replies[4]["result"]
+          assert call.get("isError") and "UNSUPPORTED_PLATFORM" in call["content"][0]["text"], call
+          print("linux image ok")
+          PY

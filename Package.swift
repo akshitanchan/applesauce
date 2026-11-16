@@ -59,12 +59,13 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
             ],
             linkerSettings: [
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", infoPlist,
-                ])
+                .unsafeFlags(
+                    [
+                        "-Xlinker", "-sectcreate",
+                        "-Xlinker", "__TEXT",
+                        "-Xlinker", "__info_plist",
+                        "-Xlinker", infoPlist,
+                    ], .when(platforms: [.macOS]))
             ]
         ),
         .testTarget(

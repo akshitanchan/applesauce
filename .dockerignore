@@ -1,0 +1,9 @@
+.build
+.git
+.github
+.swiftpm
+dist
+node_modules
+assets
+*.mcpb
+*.tgz

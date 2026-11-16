@@ -1,3 +1,4 @@
+#if os(macOS)
 import Darwin
 import Foundation
 
@@ -55,3 +56,12 @@ enum TCCBootstrap {
         return String(cString: resolved)
     }
 }
+#else
+import Foundation
+
+/// macOS privacy permissions do not exist on other systems.
+enum TCCBootstrap {
+    static func disclaimIfNeeded() {}
+    static var executablePath: String? { nil }
+}
+#endif

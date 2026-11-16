@@ -4,17 +4,21 @@ import MCP
 
 /// Reminders tools. The data comes from a `RemindersStore` (EventKit in the real binary).
 public struct RemindersModule: Module {
-    public let name = "reminders"
-    public let permissions: [Permission] = [.reminders]
+    public static let moduleName = "reminders"
+    public var name: String { Self.moduleName }
+    public static let requiredPermissions: [Permission] = [.reminders]
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any RemindersStore
     let permissionTimeout: Double
     let backendTimeout: Double
 
     /// The real module, backed by EventKit.
+    #if os(macOS)
     public init() {
         self.init(store: EventKitRemindersStore())
     }
+    #endif
 
     init(store: any RemindersStore, permissionTimeout: Double = 120, backendTimeout: Double = 30) {
         self.store = store
@@ -35,7 +39,9 @@ public struct RemindersModule: Module {
         "type": "string", "enum": ["none", "low", "medium", "high"], "description": "Priority. Default none.",
     ]
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "list_reminder_lists",

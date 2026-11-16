@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(Glibc)
+import Glibc
+#endif
+
 /// What a finished program wrote and how it ended.
 public struct ProcessResult: Sendable {
     public let stdout: Data
@@ -203,7 +207,9 @@ private final class ProcessJob: @unchecked Sendable {
         if let inPipe, let data = stdinData {
             let writer = inPipe.fileHandleForWriting
             // A write to a program that already exited must fail with an error, not a signal.
+            #if os(macOS)
             _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+            #endif
             DispatchQueue.global().async {
                 try? writer.write(contentsOf: data)
                 try? writer.close()

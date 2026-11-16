@@ -1,3 +1,5 @@
+// The real calendar store. EventKit exists on macOS only.
+#if os(macOS)
 import AppleSauceCore
 import EventKit
 import Foundation
@@ -15,7 +17,11 @@ actor EventKitCalendarStore: CalendarStore {
     func requestAccess() async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
             store.requestFullAccessToEvents { granted, error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: granted)
+                }
             }
         }
     }
@@ -156,3 +162,4 @@ actor EventKitCalendarStore: CalendarStore {
             recurring: recurring, readOnly: !(event.calendar?.allowsContentModifications ?? false))
     }
 }
+#endif

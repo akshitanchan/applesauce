@@ -1,3 +1,5 @@
+// The real reminders store. EventKit exists on macOS only.
+#if os(macOS)
 import AppleSauceCore
 import EventKit
 import Foundation
@@ -15,7 +17,11 @@ actor EventKitRemindersStore: RemindersStore {
     func requestAccess() async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
             store.requestFullAccessToReminders { granted, error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: granted)
+                }
             }
         }
     }
@@ -170,3 +176,4 @@ actor EventKitRemindersStore: RemindersStore {
             readOnly: !(reminder.calendar?.allowsContentModifications ?? false))
     }
 }
+#endif

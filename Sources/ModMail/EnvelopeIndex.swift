@@ -1,3 +1,5 @@
+// Reads Mail's index through SQLite3, which ships with macOS only.
+#if os(macOS)
 import AppleSauceCore
 import Foundation
 
@@ -23,7 +25,8 @@ enum MailURL {
         guard !host.isEmpty else { return nil }
         let path = rest.dropFirst(host.count).drop { $0 == "/" }
         return (
-            String(host).removingPercentEncoding ?? String(host), String(path).removingPercentEncoding ?? String(path)
+            String(host).removingPercentEncoding ?? String(host),
+            String(path).removingPercentEncoding ?? String(path)
         )
     }
 }
@@ -284,3 +287,4 @@ struct EnvelopeIndex {
         }
     }
 }
+#endif

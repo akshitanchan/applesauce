@@ -4,9 +4,11 @@ import MCP
 
 /// Spotlight search. The data comes from a `SpotlightStore` (`mdfind` in the real binary).
 public struct SpotlightModule: Module {
-    public let name = "spotlight"
+    public static let moduleName = "spotlight"
+    public var name: String { Self.moduleName }
     /// Spotlight needs no permission. Folders that macOS protects are left out of the results.
-    public let permissions: [Permission] = []
+    public static let requiredPermissions: [Permission] = []
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any SpotlightStore
     let backendTimeout: Double
@@ -27,7 +29,9 @@ public struct SpotlightModule: Module {
         .object(["type": .string(type), "description": .string(description)])
     }
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "search_files",

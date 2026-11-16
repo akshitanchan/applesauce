@@ -14,6 +14,7 @@ public struct ToolError: Error, Equatable, Sendable, Codable {
         case unknownTool = "UNKNOWN_TOOL"
         case readOnly = "READ_ONLY"
         case internalError = "INTERNAL_ERROR"
+        case unsupportedPlatform = "UNSUPPORTED_PLATFORM"
     }
 
     public let code: Code
@@ -29,6 +30,11 @@ public struct ToolError: Error, Equatable, Sendable, Codable {
     public static func invalidInput(_ message: String) -> ToolError {
         ToolError(.invalidInput, message, fix: "Check the tool's input schema and try again.")
     }
+
+    /// For a tool call on a system other than macOS.
+    public static let macOSOnly = ToolError(
+        .unsupportedPlatform, "applesauce runs only on macOS. This build only lists its tools.",
+        fix: "Run applesauce on a Mac with macOS 14 or newer.")
 
     /// JSON text of the error, for the tool result content.
     public var json: String {

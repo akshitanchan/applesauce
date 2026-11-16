@@ -55,10 +55,37 @@ case .serve, .doctor:
     break
 }
 
+#if os(macOS)
 let features: [any Module] = [
     CalendarModule(), RemindersModule(), MailModule(), NotesModule(), ContactsModule(), ShortcutsModule(),
     SpotlightModule(), SystemModule(),
 ]
+#else
+// Other systems list the same tools, and every call answers UNSUPPORTED_PLATFORM.
+let features: [any Module] = [
+    MacOnlyModule(
+        name: CalendarModule.moduleName, tools: CalendarModule.toolSpecs,
+        permissions: CalendarModule.requiredPermissions),
+    MacOnlyModule(
+        name: RemindersModule.moduleName, tools: RemindersModule.toolSpecs,
+        permissions: RemindersModule.requiredPermissions),
+    MacOnlyModule(
+        name: MailModule.moduleName, tools: MailModule.toolSpecs, permissions: MailModule.requiredPermissions),
+    MacOnlyModule(
+        name: NotesModule.moduleName, tools: NotesModule.toolSpecs, permissions: NotesModule.requiredPermissions),
+    MacOnlyModule(
+        name: ContactsModule.moduleName, tools: ContactsModule.toolSpecs,
+        permissions: ContactsModule.requiredPermissions),
+    MacOnlyModule(
+        name: ShortcutsModule.moduleName, tools: ShortcutsModule.toolSpecs,
+        permissions: ShortcutsModule.requiredPermissions),
+    MacOnlyModule(
+        name: SpotlightModule.moduleName, tools: SpotlightModule.toolSpecs,
+        permissions: SpotlightModule.requiredPermissions),
+    MacOnlyModule(
+        name: SystemModule.moduleName, tools: SystemModule.toolSpecs, permissions: SystemModule.requiredPermissions),
+]
+#endif
 let executable = TCCBootstrap.executablePath ?? CommandLine.arguments[0]
 let doctor = DoctorModule(
     modules: features.map(\.name).filter(config.isEnabled),

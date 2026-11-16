@@ -4,17 +4,21 @@ import MCP
 
 /// Calendar tools. The data comes from a `CalendarStore` (EventKit in the real binary).
 public struct CalendarModule: Module {
-    public let name = "calendar"
-    public let permissions: [Permission] = [.calendars]
+    public static let moduleName = "calendar"
+    public var name: String { Self.moduleName }
+    public static let requiredPermissions: [Permission] = [.calendars]
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any CalendarStore
     let permissionTimeout: Double
     let backendTimeout: Double
 
     /// The real module, backed by EventKit.
+    #if os(macOS)
     public init() {
         self.init(store: EventKitCalendarStore())
     }
+    #endif
 
     init(store: any CalendarStore, permissionTimeout: Double = 120, backendTimeout: Double = 30) {
         self.store = store
@@ -38,7 +42,9 @@ public struct CalendarModule: Module {
             "For a recurring event: 'this' changes only this occurrence (default), 'future' changes this and all later ones.",
     ]
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         let calendar = Self.property("string", "Calendar name or id. Names ignore case.")
         return [
             ToolSpec(

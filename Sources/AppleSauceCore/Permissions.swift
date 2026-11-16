@@ -1,7 +1,10 @@
+import Foundation
+
+#if os(macOS)
 import Contacts
 import CoreServices
 import EventKit
-import Foundation
+#endif
 
 /// A macOS privacy permission that some module needs.
 public enum Permission: String, CaseIterable, Sendable, Codable {
@@ -76,6 +79,8 @@ public enum Permission: String, CaseIterable, Sendable, Codable {
             return "Open \(title.replacingOccurrences(of: "Automation: ", with: "")) and run doctor again."
         case .unknown:
             return "Run doctor again. If this stays, check \(settings)."
+        case .unsupported:
+            return "applesauce runs only on macOS."
         }
     }
 }
@@ -89,6 +94,8 @@ public enum PermissionState: String, Sendable, Codable {
     case limited
     case appNotRunning = "app_not_running"
     case unknown
+    /// Not macOS, so there is no such permission.
+    case unsupported
 }
 
 /// Reads permission states. Tests use a fake.
@@ -96,6 +103,7 @@ public protocol PermissionChecker: Sendable {
     func state(of permission: Permission) -> PermissionState
 }
 
+#if os(macOS)
 /// Reads the real permission states. It never shows a prompt.
 public struct SystemPermissionChecker: PermissionChecker {
     public init() {}
@@ -154,3 +162,10 @@ public struct SystemPermissionChecker: PermissionChecker {
         return (try? FileManager.default.contentsOfDirectory(atPath: mail)) != nil ? .granted : .denied
     }
 }
+#else
+/// Other systems have no macOS permissions.
+public struct SystemPermissionChecker: PermissionChecker {
+    public init() {}
+    public func state(of permission: Permission) -> PermissionState { .unsupported }
+}
+#endif

@@ -1,3 +1,5 @@
+// SQLite3 ships with macOS only. Linux builds do not read Mail's index.
+#if os(macOS)
 import Foundation
 import SQLite3
 
@@ -22,7 +24,8 @@ public struct SQLiteRow {
     }
 
     public func text(_ column: Int32) -> String? {
-        guard sqlite3_column_type(statement, column) != SQLITE_NULL, let bytes = sqlite3_column_text(statement, column)
+        guard sqlite3_column_type(statement, column) != SQLITE_NULL,
+            let bytes = sqlite3_column_text(statement, column)
         else { return nil }
         return String(cString: bytes)
     }
@@ -65,7 +68,9 @@ public final class SQLiteReader: @unchecked Sendable {
     public func rows<T>(
         _ sql: String, _ bindings: [SQLiteValue] = [], _ map: (SQLiteRow) throws -> T
     ) throws -> [T] {
-        guard let handle else { throw ToolError(.internalError, "The database is closed.", fix: "Report this error.") }
+        guard let handle else {
+            throw ToolError(.internalError, "The database is closed.", fix: "Report this error.")
+        }
         var statement: OpaquePointer?
         let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
         guard prepared == SQLITE_OK, let statement else {
@@ -145,3 +150,4 @@ public final class SQLiteReader: @unchecked Sendable {
             fix: "Report this error.")
     }
 }
+#endif

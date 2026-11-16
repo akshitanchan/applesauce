@@ -4,8 +4,10 @@ import MCP
 
 /// Notes tools. All of them go through a `NotesStore`. The real store runs AppleScript.
 public struct NotesModule: Module {
-    public let name = "notes"
-    public let permissions: [Permission] = [.automationNotes]
+    public static let moduleName = "notes"
+    public var name: String { Self.moduleName }
+    public static let requiredPermissions: [Permission] = [.automationNotes]
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any NotesStore
     let backendTimeout: Double
@@ -31,7 +33,9 @@ public struct NotesModule: Module {
     private static let idProperty = property("string", "Note id from search_notes (it starts with x-coredata://).")
     private static let accountProperty = property("string", "Account name, for example iCloud. Ignores case.")
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "list_folders",

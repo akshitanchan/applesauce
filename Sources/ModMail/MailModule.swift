@@ -5,17 +5,21 @@ import MCP
 /// Mail tools. Reads use the Envelope Index and the `.emlx` files (Full Disk Access).
 /// Writes use AppleScript. All of it goes through a `MailStore`.
 public struct MailModule: Module {
-    public let name = "mail"
-    public let permissions: [Permission] = [.automationMail, .fullDiskAccess]
+    public static let moduleName = "mail"
+    public var name: String { Self.moduleName }
+    public static let requiredPermissions: [Permission] = [.automationMail, .fullDiskAccess]
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any MailStore
     let backendTimeout: Double
     let writeTimeout: Double
 
     /// The real module, backed by the Envelope Index and AppleScript.
+    #if os(macOS)
     public init() {
         self.init(store: AppleMailStore())
     }
+    #endif
 
     init(store: any MailStore, backendTimeout: Double = 30, writeTimeout: Double = 60) {
         self.store = store
@@ -60,7 +64,9 @@ public struct MailModule: Module {
     private static let confirmNote =
         "Without 'confirm' true nothing is sent: the message is saved as a draft."
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         let recipients = { (what: String) in
             Value.object([
                 "type": "array", "items": ["type": "string"],

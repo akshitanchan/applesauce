@@ -4,9 +4,11 @@ import MCP
 
 /// Shortcuts tools. They run `/usr/bin/shortcuts` through a `ShortcutsStore`.
 public struct ShortcutsModule: Module {
-    public let name = "shortcuts"
+    public static let moduleName = "shortcuts"
+    public var name: String { Self.moduleName }
     /// The shortcuts tool needs no macOS permission itself. A shortcut may ask for its own.
-    public let permissions: [Permission] = []
+    public static let requiredPermissions: [Permission] = []
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any ShortcutsStore
     let backendTimeout: Double
@@ -30,7 +32,9 @@ public struct ShortcutsModule: Module {
         .object(["type": .string(type), "description": .string(description)])
     }
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "list_shortcuts",

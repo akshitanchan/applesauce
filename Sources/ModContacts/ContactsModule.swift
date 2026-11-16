@@ -4,17 +4,21 @@ import MCP
 
 /// Contacts tools. The data comes from a `ContactsStore` (the Contacts framework in the real binary).
 public struct ContactsModule: Module {
-    public let name = "contacts"
-    public let permissions: [Permission] = [.contacts]
+    public static let moduleName = "contacts"
+    public var name: String { Self.moduleName }
+    public static let requiredPermissions: [Permission] = [.contacts]
+    public var permissions: [Permission] { Self.requiredPermissions }
 
     let store: any ContactsStore
     let permissionTimeout: Double
     let backendTimeout: Double
 
     /// The real module, backed by the Contacts framework.
+    #if os(macOS)
     public init() {
         self.init(store: CNContactsStore())
     }
+    #endif
 
     init(store: any ContactsStore, permissionTimeout: Double = 120, backendTimeout: Double = 30) {
         self.store = store
@@ -28,7 +32,9 @@ public struct ContactsModule: Module {
         .object(["type": .string(type), "description": .string(description)])
     }
 
-    public var tools: [ToolSpec] {
+    public var tools: [ToolSpec] { Self.toolSpecs }
+
+    public static var toolSpecs: [ToolSpec] {
         [
             ToolSpec(
                 name: "search_contacts",

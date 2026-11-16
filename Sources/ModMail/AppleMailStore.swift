@@ -1,3 +1,5 @@
+// The real Mail store. macOS only.
+#if os(macOS)
 import AppKit
 import AppleSauceCore
 import Foundation
@@ -97,13 +99,15 @@ struct AppleMailStore: MailStore {
         if hasFullDiskAccess(), let boxes = try? openIndex().index.mailboxes() {
             let names = Dictionary(
                 ((try? await accounts()) ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-            return boxes.filter { account == nil || $0.accountId.caseInsensitiveCompare(account ?? "") == .orderedSame }
-                .map {
-                    MailboxInfo(
-                        name: $0.name, path: $0.path, accountId: $0.accountId, account: names[$0.accountId],
-                        unread: $0.unread)
-                }
-                .sorted { ($0.accountId, $0.path.lowercased()) < ($1.accountId, $1.path.lowercased()) }
+            return boxes.filter {
+                account == nil || $0.accountId.caseInsensitiveCompare(account ?? "") == .orderedSame
+            }
+            .map {
+                MailboxInfo(
+                    name: $0.name, path: $0.path, accountId: $0.accountId, account: names[$0.accountId],
+                    unread: $0.unread)
+            }
+            .sorted { ($0.accountId, $0.path.lowercased()) < ($1.accountId, $1.path.lowercased()) }
         }
         try requireRunning()
         let text = try await MailScripts.run(
@@ -148,7 +152,8 @@ struct AppleMailStore: MailStore {
         var to = detail.to
         var cc = detail.cc
 
-        let located = EmlxLocator(root: folder).find(accountId: summary.accountId, mailbox: summary.mailbox, rowid: id)
+        let located = EmlxLocator(root: folder).find(
+            accountId: summary.accountId, mailbox: summary.mailbox, rowid: id)
         let file = located.map { MIMEReader.readEmlx(at: $0.url) }
         if let located, case .data(let data)? = file {
             let parsed = MIMEReader.parse(MIMEReader.messageBytes(inEmlx: data))
@@ -241,3 +246,4 @@ struct AppleMailStore: MailStore {
             timeout: writeTimeout)
     }
 }
+#endif

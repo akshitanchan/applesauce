@@ -1,3 +1,5 @@
+// The real contacts store. The Contacts framework exists on macOS only.
+#if os(macOS)
 import AppleSauceCore
 import Contacts
 import Foundation
@@ -17,7 +19,11 @@ actor CNContactsStore: ContactsStore {
     func requestAccess() async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
             store.requestAccess(for: .contacts) { granted, error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: granted)
+                }
             }
         }
     }
@@ -61,7 +67,8 @@ actor CNContactsStore: ContactsStore {
 
     func contact(id: String) async throws -> ContactInfo? {
         do {
-            return Self.info(try store.unifiedContact(withIdentifier: id, keysToFetch: detailKeys()), detailed: true)
+            return Self.info(
+                try store.unifiedContact(withIdentifier: id, keysToFetch: detailKeys()), detailed: true)
         } catch let error as CNError where error.code == .recordDoesNotExist {
             return nil
         } catch {
@@ -108,3 +115,4 @@ actor CNContactsStore: ContactsStore {
         return String(format: "%04d-", year) + monthDay
     }
 }
+#endif

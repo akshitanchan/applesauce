@@ -1,3 +1,5 @@
+// The real system store. AppKit exists on macOS only.
+#if os(macOS)
 import AppKit
 import AppleSauceCore
 import Foundation
@@ -47,3 +49,4 @@ actor AppKitSystemStore: SystemStore {
         }
     }
 }
+#endif
