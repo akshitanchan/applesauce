@@ -35,7 +35,8 @@ enum MailURL {
 ///
 /// Layout this code expects (macOS 13 and later, all of it checked at run time):
 /// - `messages`: ROWID, subject (ROWID in `subjects`), sender (ROWID in `addresses`), date_received,
-///   mailbox (ROWID in `mailboxes`), read, flagged. Optional: deleted, date_sent, subject_prefix (for example `Re: `).
+///   mailbox (ROWID in `mailboxes`), read, flagged. Optional: deleted, date_sent, subject_prefix (for example `Re: `),
+///   flags (the flag color is in it).
 /// - `subjects`: ROWID, subject. `addresses`: ROWID, address, comment (the display name).
 /// - `mailboxes`: ROWID, url. Optional: unread_count.
 /// - Optional tables: `recipients` (message, address, type; 0 is To, 1 is Cc),
@@ -51,6 +52,22 @@ struct EnvelopeIndex {
     private let hasRecipients: Bool
     private let hasAttachments: Bool
     private let hasLabels: Bool
+    private let hasFlags: Bool
+
+    /// Mail keeps the flag color in bits 39 to 41 of `messages.flags`: a number from 0 to 6, like the AppleScript
+    /// `flag index` (0 red, 1 orange, 2 yellow, 3 green, 4 blue, 5 purple, 6 gray). It is the same as the three
+    /// IMAP keywords `$MailFlagBit0` to `$MailFlagBit2`. The bits keep their value after a message is unflagged,
+    /// so they count only when `flagged` is set.
+    ///
+    /// Checked against the real index and Mail's `flag index` on 10 flagged messages: the values 0 (red) and 1 (orange)
+    /// match every time. The values 2 to 6 were not checked on a flagged message, because none existed.
+    static let flagColorShift = 39
+
+    /// The flag color of a message row, or nil when it is not flagged or the bits hold no color.
+    static func flagColor(flags: Int64, flagged: Bool) -> FlagColor? {
+        guard flagged else { return nil }
+        return FlagColor(index: Int((flags >> Int64(flagColorShift)) & 7))
+    }
 
     init(db: SQLiteReader) throws {
         self.db = db
@@ -70,6 +87,7 @@ struct EnvelopeIndex {
         let messageColumns = try db.columns(of: "messages")
         hasDeleted = messageColumns.contains("deleted")
         hasSubjectPrefix = messageColumns.contains("subject_prefix")
+        hasFlags = messageColumns.contains("flags")
         hasUnreadCount = try db.columns(of: "mailboxes").contains("unread_count")
         hasRecipients = try db.missingColumns(in: "recipients", ["message", "address", "type"]).isEmpty
         hasAttachments = try db.missingColumns(in: "attachments", ["message", "name"]).isEmpty
@@ -97,7 +115,7 @@ struct EnvelopeIndex {
     // MARK: search
 
     private static let selectSummary = """
-        SELECT m.ROWID, %S, a.address, a.comment, m.date_received, m.mailbox, m.read, m.flagged, %@
+        SELECT m.ROWID, %S, a.address, a.comment, m.date_received, m.mailbox, m.read, m.flagged, %@, %F
         FROM messages m
         LEFT JOIN subjects s ON s.ROWID = m.subject
         LEFT JOIN addresses a ON a.ROWID = m.sender
@@ -112,6 +130,7 @@ struct EnvelopeIndex {
         let attachments =
             hasAttachments ? "EXISTS (SELECT 1 FROM attachments t WHERE t.message = m.ROWID)" : "NULL"
         return Self.selectSummary.replacingOccurrences(of: "%@", with: attachments)
+            .replacingOccurrences(of: "%F", with: hasFlags ? "m.flags" : "NULL")
             .replacingOccurrences(of: "%S", with: subjectColumn)
     }
 
@@ -190,6 +209,11 @@ struct EnvelopeIndex {
         }
         if let unread = query.unread { conditions.append(unread ? "m.read = 0" : "m.read <> 0") }
         if let flagged = query.flagged { conditions.append(flagged ? "m.flagged <> 0" : "m.flagged = 0") }
+        if let color = query.flagColor {
+            guard hasFlags else { throw Self.schemaError("The Mail index has no column 'messages.flags'.") }
+            conditions.append("(m.flagged <> 0 AND ((m.flags >> \(Self.flagColorShift)) & 7) = ?)")
+            bindings.append(.integer(Int64(color.index)))
+        }
         if let since = query.since {
             conditions.append("m.date_received >= ?")
             bindings.append(.integer(Int64(since.timeIntervalSince1970)))
@@ -217,13 +241,15 @@ struct EnvelopeIndex {
 
     private static func summary(_ row: SQLiteRow, mailboxes: [Int64: IndexMailbox]) -> MessageSummary {
         let mailbox = row.int(5).flatMap { mailboxes[$0] }
+        let flagged = (row.int(7) ?? 0) != 0
         return MessageSummary(
             id: String(row.int(0) ?? 0), subject: row.text(1) ?? "",
             from: formatAddress(row.text(2), name: row.text(3)),
             date: row.double(4).map { Date(timeIntervalSince1970: $0) },
             mailbox: mailbox?.path ?? "", accountId: mailbox?.accountId ?? "",
-            read: (row.int(6) ?? 0) != 0, flagged: (row.int(7) ?? 0) != 0,
-            hasAttachments: row.int(8).map { $0 != 0 })
+            read: (row.int(6) ?? 0) != 0, flagged: flagged,
+            hasAttachments: row.int(8).map { $0 != 0 },
+            flagColor: row.int(9).flatMap { flagColor(flags: $0, flagged: flagged) }?.rawValue)
     }
 
     static func formatAddress(_ address: String?, name: String?) -> String {

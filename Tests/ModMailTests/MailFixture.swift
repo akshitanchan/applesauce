@@ -12,7 +12,7 @@ struct MailFixture {
 
     struct Options {
         var messageColumns =
-            "ROWID INTEGER PRIMARY KEY, subject INTEGER, sender INTEGER, date_received INTEGER, mailbox INTEGER, read INTEGER, flagged INTEGER, deleted INTEGER, subject_prefix TEXT"
+            "ROWID INTEGER PRIMARY KEY, subject INTEGER, sender INTEGER, date_received INTEGER, mailbox INTEGER, read INTEGER, flagged INTEGER, deleted INTEGER, subject_prefix TEXT, flags INTEGER"
         var withLabels = true
         var withRecipients = true
         var withAttachments = true
@@ -21,6 +21,10 @@ struct MailFixture {
 
     static let account1 = "11111111-AAAA-4AAA-8AAA-111111111111"
     static let account2 = "22222222-BBBB-4BBB-8BBB-222222222222"
+
+    /// The `flags` value of some messages. Message 2 is flagged orange (color 1 in bits 39 to 41).
+    /// Message 3 is not flagged, but its color bits say yellow (2): Mail keeps the bits after an unflag.
+    static let flags: [Int: Int64] = [2: (1 << 39) | 0x10, 3: 2 << 39]
 
     private init(folder: URL) { self.folder = folder }
 
@@ -97,6 +101,7 @@ struct MailFixture {
                         "date_received": "\(row.3)", "mailbox": "\(row.4)", "read": "\(row.5)",
                         "flagged": "\(row.6)", "deleted": "\(row.7)",
                         "subject_prefix": row.0 == 4 ? "'Fwd: '" : "NULL",
+                        "flags": "\(Self.flags[row.0] ?? 0)",
                     ]))
         }
         if options.withLabels {

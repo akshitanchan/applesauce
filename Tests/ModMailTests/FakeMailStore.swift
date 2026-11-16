@@ -27,7 +27,7 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         var composed: (mail: OutgoingMail, send: Bool)?
         var replied: (ref: MessageRef, body: String, replyAll: Bool, send: Bool)?
         var moved: (refs: [MessageRef], mailbox: String, account: String?)?
-        var flagged: (refs: [MessageRef], value: Bool)?
+        var flagged: (refs: [MessageRef], value: Bool, color: FlagColor?)?
         var read: (refs: [MessageRef], value: Bool)?
         var deleted: [MessageRef]?
         var writeDelay: Double = 0
@@ -133,10 +133,10 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         try await delay()
     }
 
-    func setFlagged(_ refs: [MessageRef], _ flagged: Bool) async throws {
+    func setFlagged(_ refs: [MessageRef], _ flagged: Bool, color: FlagColor?) async throws {
         write {
             $0.calls.append("flag")
-            $0.flagged = (refs, flagged)
+            $0.flagged = (refs, flagged, color)
         }
         try await delay()
     }

@@ -119,6 +119,44 @@ import Testing
         #expect(ids(try search { $0.hasAttachments = false }) == ["4", "3", "7", "1", "6"])
     }
 
+    @Test func flagColorFilterAndSummary() throws {
+        #expect(ids(try search { $0.flagColor = .orange }) == ["2"])
+        // Message 3 has yellow bits but is not flagged, so it never matches.
+        #expect(ids(try search { $0.flagColor = .yellow }).isEmpty)
+        #expect(ids(try search { $0.flagColor = .red }).isEmpty)
+        let flagged = try #require(try search { $0.text = "Invoice" }.items.first)
+        #expect(flagged.flagColor == "orange")
+        let unflagged = try #require(try search { $0.text = "Gmail" }.items.first)
+        #expect(unflagged.flagged == false && unflagged.flagColor == nil)
+    }
+
+    @Test func flagColorBitsDecode() {
+        let flagBit: Int64 = 0x10
+        for color in FlagColor.allCases {
+            let flags = (Int64(color.index) << Int64(EnvelopeIndex.flagColorShift)) | flagBit | 0x1_0000_0001
+            #expect(EnvelopeIndex.flagColor(flags: flags, flagged: true) == color)
+            #expect(EnvelopeIndex.flagColor(flags: flags, flagged: false) == nil)
+        }
+        // Real values from a Mail index: a flagged message without color bits is red, bit 39 is orange.
+        #expect(EnvelopeIndex.flagColor(flags: 8_590_195_857, flagged: true) == .red)
+        #expect(EnvelopeIndex.flagColor(flags: 558_346_009_745, flagged: true) == .orange)
+        #expect(EnvelopeIndex.flagColor(flags: 575_525_878_929, flagged: true) == .orange)
+        // Value 7 is not a color.
+        #expect(EnvelopeIndex.flagColor(flags: 7 << 39, flagged: true) == nil)
+    }
+
+    @Test func flagColorFilterNeedsTheFlagsColumn() throws {
+        var options = MailFixture.Options()
+        options.messageColumns =
+            "ROWID INTEGER PRIMARY KEY, subject INTEGER, sender INTEGER, date_received INTEGER, mailbox INTEGER, read INTEGER, flagged INTEGER, deleted INTEGER"
+        let fixture = try MailFixture(options)
+        defer { fixture.remove() }
+        let index = try fixture.index()
+        #expect(throws: ToolError.self) { _ = try index.search(MailSearchQuery(flagColor: .red)) }
+        let page = try index.search(MailSearchQuery(flagged: true))
+        #expect(page.items.first?.flagColor == nil)
+    }
+
     @Test func dateRange() throws {
         let since = Date(timeIntervalSince1970: 1_700_000_000)
         let before = Date(timeIntervalSince1970: 1_700_200_000)

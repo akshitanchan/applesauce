@@ -181,7 +181,7 @@ enum MailScripts {
             """
 
     /// argv: account spec or `none`, mailbox path, since (`yyyy-MM-dd HH:mm:ss`, local time), before (same).
-    /// Output records: id, subject, sender, date, read, flagged, mailbox path, account id.
+    /// Output records: id, subject, sender, date, read, flagged, mailbox path, account id, flag index (-1 for none).
     ///
     /// A `whose` filter on a large mailbox costs Mail several seconds, and Mail runs it again for each property read.
     /// So the script reads each property of every message once, in bulk, and filters the dates here.
@@ -201,6 +201,7 @@ enum MailScripts {
                     property msgDates : {}
                     property msgReads : {}
                     property msgFlags : {}
+                    property msgColors : {}
                 end script
                 set out to {}
                 tell application "Mail"
@@ -231,9 +232,10 @@ enum MailScripts {
                                 set cols's msgSenders to sender of every message of mb
                                 set cols's msgReads to read status of every message of mb
                                 set cols's msgFlags to flagged status of every message of mb
+                                set cols's msgColors to flag index of every message of mb
                             end tell
                             set total to count of cols's msgDates
-                            if (count of cols's msgIds) is total and (count of cols's msgSubjects) is total and (count of cols's msgSenders) is total and (count of cols's msgReads) is total and (count of cols's msgFlags) is total then
+                            if (count of cols's msgIds) is total and (count of cols's msgSubjects) is total and (count of cols's msgSenders) is total and (count of cols's msgReads) is total and (count of cols's msgFlags) is total and (count of cols's msgColors) is total then
                                 set aligned to true
                                 exit repeat
                             end if
@@ -242,7 +244,7 @@ enum MailScripts {
                         repeat with i from 1 to total
                             set d to item i of cols's msgDates
                             if d is not missing value and d >= sinceDate and d < beforeDate then
-                                set end of out to ((item i of cols's msgIds) as text) & fs & my safeText(item i of cols's msgSubjects) & fs & my safeText(item i of cols's msgSenders) & fs & my formatDate(d) & fs & ((item i of cols's msgReads) as text) & fs & ((item i of cols's msgFlags) as text) & fs & mailboxPath & fs & acctId
+                                set end of out to ((item i of cols's msgIds) as text) & fs & my safeText(item i of cols's msgSubjects) & fs & my safeText(item i of cols's msgSenders) & fs & my formatDate(d) & fs & ((item i of cols's msgReads) as text) & fs & ((item i of cols's msgFlags) as text) & fs & mailboxPath & fs & acctId & fs & ((item i of cols's msgColors) as text)
                             end if
                         end repeat
                     end if
@@ -252,7 +254,8 @@ enum MailScripts {
             """
 
     /// argv: account spec, mailbox path, id.
-    /// Output (one record): subject, sender, date, read, flagged, to (comma separated), cc, attachments, content.
+    /// Output (one record): subject, sender, date, read, flagged, flag index (-1 for none), to (comma separated), cc,
+    /// attachments, content.
     /// Attachments are `name`, character 28, `size`, and character 29 between attachments.
     static let message =
         prelude + """
@@ -285,14 +288,19 @@ enum MailScripts {
                     try
                         set bodyText to content of msg
                     end try
-                    return my safeText(subject of msg) & fs & my safeText(sender of msg) & fs & my formatDate(date received of msg) & fs & ((read status of msg) as text) & fs & ((flagged status of msg) as text) & fs & my joinList(toList, ",") & fs & my joinList(ccList, ",") & fs & my joinList(attachmentList, gs) & fs & my safeText(bodyText)
+                    set flagIndex to -1
+                    try
+                        set flagIndex to flag index of msg
+                    end try
+                    return my safeText(subject of msg) & fs & my safeText(sender of msg) & fs & my formatDate(date received of msg) & fs & ((read status of msg) as text) & fs & ((flagged status of msg) as text) & fs & (flagIndex as text) & fs & my joinList(toList, ",") & fs & my joinList(ccList, ",") & fs & my joinList(attachmentList, gs) & fs & my safeText(bodyText)
                 end tell
             end run
             """
 
     // MARK: writes
 
-    /// argv: action (`flag`, `read`, `move`, `delete`), value (`true` or `false`, or the target mailbox path),
+    /// argv: action (`flag`, `color`, `read`, `move`, `delete`), value (`true` or `false`, the flag index for `color`,
+    /// or the target mailbox path),
     /// target account (name or id, or `none` for the account of each message), count,
     /// then for each message: account id, mailbox path, message id. Output: the number of messages changed.
     /// `delete` moves a message out of its mailbox, and Mail gives it a new id.
@@ -321,6 +329,9 @@ enum MailScripts {
                     tell application "Mail"
                         if action is "flag" then
                             set flagged status of msg to (value_ is "true")
+                        else if action is "color" then
+                            set flagged status of msg to true
+                            set flag index of msg to (value_ as integer)
                         else if action is "read" then
                             set read status of msg to (value_ is "true")
                         else if action is "move" then
@@ -562,9 +573,11 @@ enum MailScripts {
     static func parseSearch(_ text: String) -> [MessageSummary] {
         records(text).compactMap { fields in
             guard fields.count >= 8 else { return nil }
+            let flagged = fields[5] == "true"
             return MessageSummary(
                 id: fields[0], subject: fields[1], from: fields[2], date: parseDate(fields[3]), mailbox: fields[6],
-                accountId: fields[7], read: fields[4] == "true", flagged: fields[5] == "true", hasAttachments: nil)
+                accountId: fields[7], read: fields[4] == "true", flagged: flagged, hasAttachments: nil,
+                flagColor: colorName(fields.count > 8 ? fields[8] : "", flagged: flagged))
         }
     }
 
@@ -580,6 +593,7 @@ enum MailScripts {
             if let subject = query.subject, !contains(item.subject, subject) { return false }
             if let unread = query.unread, unread == item.read { return false }
             if let flagged = query.flagged, flagged != item.flagged { return false }
+            if let color = query.flagColor, !item.flagged || item.flagColor != color.rawValue { return false }
             return true
         }.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
         return SearchPage(items: Array(kept.prefix(query.limit)), truncated: kept.count > query.limit)
@@ -587,20 +601,28 @@ enum MailScripts {
 
     /// Reads the output of the `message` script.
     static func parseMessage(_ text: String, ref: MessageRef) -> MailMessage? {
-        let fields = text.split(separator: fieldSeparator, maxSplits: 8, omittingEmptySubsequences: false).map(
+        let fields = text.split(separator: fieldSeparator, maxSplits: 9, omittingEmptySubsequences: false).map(
             String.init)
-        guard fields.count == 9 else { return nil }
+        guard fields.count == 10 else { return nil }
         func list(_ text: String) -> [String] { text.split(separator: ",").map(String.init) }
-        let attachments = fields[7].split(separator: "\u{1D}").map { item -> MailAttachment in
+        let attachments = fields[8].split(separator: "\u{1D}").map { item -> MailAttachment in
             let parts = item.split(separator: "\u{1C}", omittingEmptySubsequences: false).map(String.init)
             return MailAttachment(name: parts.first ?? "", size: parts.count > 1 ? Int(parts[1]) : nil)
         }
-        let (body, truncated) = limitBody(fields[8])
+        let (body, truncated) = limitBody(fields[9])
+        let flagged = fields[4] == "true"
         return MailMessage(
-            id: ref.id, subject: fields[0], from: fields[1], to: list(fields[5]), cc: list(fields[6]),
+            id: ref.id, subject: fields[0], from: fields[1], to: list(fields[6]), cc: list(fields[7]),
             date: parseDate(fields[2]), mailbox: ref.mailbox, accountId: ref.accountId, read: fields[3] == "true",
-            flagged: fields[4] == "true", messageId: nil, body: body, bodySource: "applescript",
-            truncated: truncated, partial: false, attachments: attachments, note: nil)
+            flagged: flagged, messageId: nil, body: body, bodySource: "applescript",
+            truncated: truncated, partial: false, attachments: attachments, note: nil,
+            flagColor: colorName(fields[5], flagged: flagged))
+    }
+
+    /// The color name for the text of a `flag index`. Nil for an unflagged message, -1 or a value that is not a color.
+    static func colorName(_ index: String, flagged: Bool) -> String? {
+        guard flagged, let number = Int(index) else { return nil }
+        return FlagColor(index: number)?.rawValue
     }
 
     static func limitBody(_ text: String, limit: Int = bodyLimit) -> (String, Bool) {

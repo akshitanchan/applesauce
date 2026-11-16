@@ -176,7 +176,7 @@ struct AppleMailStore: MailStore {
             id: id, subject: summary.subject, from: summary.from, to: to, cc: cc, date: summary.date,
             mailbox: summary.mailbox, accountId: summary.accountId, read: summary.read, flagged: summary.flagged,
             messageId: messageID, body: body, bodySource: source, truncated: truncated, partial: partial,
-            attachments: attachments, note: note)
+            attachments: attachments, note: note, flagColor: summary.flagColor)
     }
 
     func scriptedMessage(_ ref: MessageRef) async throws -> MailMessage {
@@ -223,11 +223,12 @@ struct AppleMailStore: MailStore {
             timeout: writeTimeout)
     }
 
-    func setFlagged(_ refs: [MessageRef], _ flagged: Bool) async throws {
+    func setFlagged(_ refs: [MessageRef], _ flagged: Bool, color: FlagColor?) async throws {
+        let (action, value) =
+            flagged && color != nil ? ("color", String(color?.index ?? 0)) : ("flag", flagged ? "true" : "false")
         _ = try await MailScripts.run(
             MailScripts.change,
-            MailScripts.changeArguments(
-                action: "flag", value: flagged ? "true" : "false", targetAccount: nil, refs: refs),
+            MailScripts.changeArguments(action: action, value: value, targetAccount: nil, refs: refs),
             timeout: writeTimeout)
     }
 

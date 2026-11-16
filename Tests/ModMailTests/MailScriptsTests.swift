@@ -69,14 +69,40 @@ import Testing
         #expect(boxes.last?.unread == nil)
 
         let row =
-            "42\(fs)Subject, with: tab\t\(fs)Ann <a@b.c>\(fs)2026-11-12 09:30:00\(fs)false\(fs)true\(fs)INBOX\(fs)A1"
+            "42\(fs)Subject, with: tab\t\(fs)Ann <a@b.c>\(fs)2026-11-12 09:30:00\(fs)false\(fs)true\(fs)INBOX\(fs)A1\(fs)1"
         let found = MailScripts.parseSearch(row + rs + "broken\(fs)row")
         #expect(found.count == 1)
+        #expect(found[0].flagColor == "orange")
         #expect(found[0].id == "42" && found[0].read == false && found[0].flagged == true)
         #expect(found[0].subject == "Subject, with: tab\t" && found[0].accountId == "A1")
         let date = found[0].date.map { MailScripts.dateText($0) }
         #expect(date == "2026-11-12 09:30:00")
         #expect(MailScripts.parseSearch("").isEmpty)
+    }
+
+    @Test func flagColorFromAppleScriptOutput() {
+        #expect(MailScripts.colorName("0", flagged: true) == "red")
+        #expect(MailScripts.colorName("6", flagged: true) == "gray")
+        #expect(MailScripts.colorName("-1", flagged: true) == nil)
+        #expect(MailScripts.colorName("2", flagged: false) == nil)
+        #expect(MailScripts.colorName("", flagged: true) == nil)
+        // An older row without the color field still parses.
+        let old = "1\(fs)S\(fs)a@b.c\(fs)2026-11-12 09:30:00\(fs)true\(fs)true\(fs)INBOX\(fs)A1"
+        #expect(MailScripts.parseSearch(old).first?.flagColor == nil)
+    }
+
+    @Test func scopedFilterByFlagColor() {
+        func item(_ id: String, flagged: Bool, color: String?) -> MessageSummary {
+            MessageSummary(
+                id: id, subject: "s", from: "a@b.c", date: Date(timeIntervalSince1970: Double(id) ?? 0),
+                mailbox: "INBOX", accountId: "A", read: true, flagged: flagged, hasAttachments: nil, flagColor: color)
+        }
+        let items = [
+            item("1", flagged: true, color: "red"), item("2", flagged: true, color: "orange"),
+            item("3", flagged: false, color: nil),
+        ]
+        #expect(MailScripts.filter(items, MailSearchQuery(flagColor: .orange, limit: 10)).items.map(\.id) == ["2"])
+        #expect(MailScripts.filter(items, MailSearchQuery(flagColor: .green, limit: 10)).items.isEmpty)
     }
 
     @Test func scopedFilterSortsNewestFirstAndCuts() {
@@ -112,7 +138,7 @@ import Testing
         let us = "\u{1C}"
         let gs = "\u{1D}"
         let text = [
-            "Hi", "Ann <a@b.c>", "2026-11-12 09:30:00", "true", "false", "x@y.z,q@y.z", "",
+            "Hi", "Ann <a@b.c>", "2026-11-12 09:30:00", "true", "false", "-1", "x@y.z,q@y.z", "",
             "a.pdf\(us)100\(gs)b.png\(us)5", "Line1\nLine2 \(fs) rest",
         ]
         .joined(separator: fs)
@@ -124,6 +150,9 @@ import Testing
             message?.attachments == [MailAttachment(name: "a.pdf", size: 100), MailAttachment(name: "b.png", size: 5)])
         #expect(message?.body == "Line1\nLine2 \(fs) rest")
         #expect(message?.bodySource == "applescript")
+        #expect(message?.flagColor == nil)
+        let flaggedText = text.replacingOccurrences(of: "true\(fs)false\(fs)-1", with: "true\(fs)true\(fs)4")
+        #expect(MailScripts.parseMessage(flaggedText, ref: ref)?.flagColor == "blue")
         #expect(MailScripts.parseMessage("too few\(fs)fields", ref: ref) == nil)
     }
 

@@ -56,6 +56,13 @@ public struct MailModule: Module {
     private static let confirmDeleteProperty = property(
         "boolean", "Must be true for a large or final delete. Without it, nothing changes and the result says why.")
 
+    private static func colorProperty(_ description: String) -> Value {
+        .object([
+            "type": "string", "enum": .array(FlagColor.allCases.map { .string($0.rawValue) }),
+            "description": .string(description),
+        ])
+    }
+
     private static let fromNote =
         "With more than one Mail account, 'from' must say which one sends. Ask the user when it is not clear."
     private static let fromProperty = property(
@@ -95,6 +102,8 @@ public struct MailModule: Module {
                     "account": Self.property("string", "Account id or name."),
                     "unread": Self.property("boolean", "true for unread only, false for read only."),
                     "flagged": Self.property("boolean", "true for flagged only, false for not flagged."),
+                    "flag_color": Self.colorProperty(
+                        "Only messages flagged with this color. Do not combine it with 'flagged' false."),
                     "since": Self.property("string", "Received at or after this. \(Self.dateNote)"),
                     "before": Self.property(
                         "string", "Received before this. A date-only value means the start of that day."),
@@ -160,10 +169,12 @@ public struct MailModule: Module {
                 required: ["ids", "mailbox"], destructive: true),
             ToolSpec(
                 name: "flag_message",
-                description: "Flag or unflag messages (at most \(Self.batchLimit)). Mail must be running.",
+                description:
+                    "Flag or unflag messages (at most \(Self.batchLimit)). Give 'color' to flag with a color. Without 'color', Mail uses its default flag. Mail must be running.",
                 properties: [
                     "ids": Self.idsProperty,
                     "flagged": Self.property("boolean", "true to flag, false to remove the flag."),
+                    "color": Self.colorProperty("Flag color. Needs 'flagged' true."),
                     "in_mailbox": Self.inMailbox, "in_account": Self.inAccount,
                 ],
                 required: ["ids", "flagged"], write: true, idempotent: true),
@@ -268,7 +279,7 @@ public struct MailModule: Module {
     static func describe(_ item: MessageSummary) -> String {
         var flags: [String] = []
         if !item.read { flags.append("unread") }
-        if item.flagged { flags.append("flagged") }
+        if item.flagged { flags.append(item.flagColor.map { "flagged \($0)" } ?? "flagged") }
         if item.hasAttachments == true { flags.append("attachment") }
         let date = item.date.map { ISODate.string($0) } ?? "no date"
         let tail = flags.isEmpty ? "" : " [\(flags.joined(separator: ", "))]"
@@ -309,6 +320,17 @@ public struct MailModule: Module {
                 fix: "Use ids from search_mail. An id is a whole number.")
         }
         return id
+    }
+
+    /// An optional flag color name (any case).
+    private func flagColor(_ args: Arguments, key: String) throws -> FlagColor? {
+        guard let text = try trimmed(args, key) else { return nil }
+        guard let color = FlagColor(rawValue: text.lowercased()) else {
+            throw ToolError(
+                .invalidInput, "'\(key)' is not a flag color: '\(text)'.",
+                fix: "Use one of: \(FlagColor.names).")
+        }
+        return color
     }
 
     private func requiredID(_ args: Arguments) throws -> String {
@@ -414,6 +436,12 @@ public struct MailModule: Module {
         let accountText = try trimmed(args, "account")
         query.unread = try args.bool("unread")
         query.flagged = try args.bool("flagged")
+        query.flagColor = try flagColor(args, key: "flag_color")
+        if query.flagColor != nil, query.flagged == false {
+            throw ToolError(
+                .invalidInput, "'flag_color' cannot be used with 'flagged' false.",
+                fix: "Remove 'flagged', or remove 'flag_color'. A color filter returns flagged messages only.")
+        }
         query.since = try args.date("since")?.date
         query.before = try args.date("before")?.date
         query.hasAttachments = try args.bool("has_attachments")
@@ -541,8 +569,8 @@ public struct MailModule: Module {
         if !message.to.isEmpty { lines.append("To: \(message.to.joined(separator: ", "))") }
         if !message.cc.isEmpty { lines.append("Cc: \(message.cc.joined(separator: ", "))") }
         if let date = message.date { lines.append("Date: \(ISODate.string(date))") }
-        lines.append(
-            "Mailbox: \(message.mailbox)\(message.read ? "" : " (unread)")\(message.flagged ? " (flagged)" : "")")
+        let flag = message.flagged ? " (\(message.flagColor.map { "flagged \($0)" } ?? "flagged"))" : ""
+        lines.append("Mailbox: \(message.mailbox)\(message.read ? "" : " (unread)")\(flag)")
         if !message.attachments.isEmpty {
             let list = message.attachments.map { attachment in
                 attachment.size.map {
@@ -670,6 +698,7 @@ public struct MailModule: Module {
         var target: String?
         var targetAccount: String?
         var flag = false
+        var color: FlagColor?
         switch tool {
         case "move_message":
             target = try trimmed(args, "mailbox")
@@ -678,6 +707,12 @@ public struct MailModule: Module {
         case "flag_message":
             guard let value = try args.bool("flagged") else { throw ToolError.invalidInput("'flagged' is required.") }
             flag = value
+            color = try flagColor(args, key: "color")
+            if color != nil, !flag {
+                throw ToolError(
+                    .invalidInput, "'color' needs 'flagged' true.",
+                    fix: "Set 'flagged' true to flag with a color, or remove 'color' to remove the flag.")
+            }
         case "mark_read":
             guard let value = try args.bool("read") else { throw ToolError.invalidInput("'read' is required.") }
             flag = value
@@ -692,7 +727,7 @@ public struct MailModule: Module {
                 payload: ActionResult(
                     action: tool, count: ids.count, ids: ids, sent: nil, draftSaved: nil, confirmRequired: true))
         }
-        let (target0, account0, flag0) = (target, targetAccount, flag)
+        let (target0, account0, flag0, color0) = (target, targetAccount, flag, color)
         let summary: String
         switch tool {
         case "move_message":
@@ -702,9 +737,10 @@ public struct MailModule: Module {
             summary = "Moved \(ids.count) messages to '\(target0 ?? "")'."
         case "flag_message":
             try await backend(seconds: writeTimeout, onTimeout: Self.batchTimeout) {
-                try await $0.setFlagged(found, flag0)
+                try await $0.setFlagged(found, flag0, color: color0)
             }
-            summary = "\(flag0 ? "Flagged" : "Unflagged") \(ids.count) messages."
+            summary =
+                "\(flag0 ? "Flagged" : "Unflagged") \(ids.count) messages\(color0.map { " \($0.rawValue)" } ?? "")."
         case "mark_read":
             try await backend(seconds: writeTimeout, onTimeout: Self.batchTimeout) {
                 try await $0.setRead(found, flag0)
@@ -759,7 +795,7 @@ extension MailMessage {
         MailMessage(
             id: id, subject: subject, from: from, to: to, cc: cc, date: date, mailbox: mailbox, accountId: accountId,
             read: read, flagged: flagged, messageId: messageId, body: body, bodySource: bodySource,
-            truncated: truncated, partial: partial, attachments: attachments, note: note)
+            truncated: truncated, partial: partial, attachments: attachments, note: note, flagColor: flagColor)
     }
 
     /// This message with the body (and the attachment list, which has sizes) of a message read through Mail.
@@ -768,6 +804,7 @@ extension MailMessage {
             id: id, subject: subject, from: from, to: to, cc: cc, date: date, mailbox: mailbox, accountId: accountId,
             read: read, flagged: flagged, messageId: messageId, body: other.body, bodySource: other.bodySource,
             truncated: other.truncated, partial: false,
-            attachments: other.attachments.isEmpty ? attachments : other.attachments, note: note)
+            attachments: other.attachments.isEmpty ? attachments : other.attachments, note: note,
+            flagColor: flagColor ?? other.flagColor)
     }
 }

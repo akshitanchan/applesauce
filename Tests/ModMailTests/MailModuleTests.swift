@@ -514,6 +514,65 @@ import Testing
         #expect(object(deleted)["count"]?.intValue == 1)
     }
 
+    // MARK: flag colors
+
+    @Test func flagMessageColorReachesTheStore() async throws {
+        let fake = store()
+        let colored = try await run("flag_message", ["ids": ["10"], "flagged": true, "color": "Orange"], on: fake)
+        #expect(fake.read(\.flagged)?.color == .orange && fake.read(\.flagged)?.value == true)
+        #expect(colored.text.contains("Flagged 1 messages orange"))
+        _ = try await run("flag_message", ["ids": ["10"], "flagged": true], on: fake)
+        #expect(fake.read(\.flagged)?.color == nil)
+        _ = try await run("flag_message", ["ids": ["10"], "flagged": false], on: fake)
+        #expect(fake.read(\.flagged)?.color == nil && fake.read(\.flagged)?.value == false)
+    }
+
+    @Test func badFlagColorInputNeverReachesTheStore() async {
+        let fake = store()
+        let bad: [(String, [String: Value])] = [
+            ("flag_message", ["ids": ["10"], "flagged": false, "color": "red"]),
+            ("flag_message", ["ids": ["10"], "flagged": true, "color": "pink"]),
+            ("flag_message", ["ids": ["10"], "flagged": true, "color": 3]),
+            ("search_mail", ["flag_color": "pink"]),
+            ("search_mail", ["flag_color": "red", "flagged": false]),
+        ]
+        for (tool, args) in bad {
+            let error = await failure(tool, args, on: fake)
+            #expect(error?.code == .invalidInput, "\(tool) \(args)")
+        }
+        #expect(fake.read(\.calls).isEmpty)
+    }
+
+    @Test func searchPassesTheFlagColorAndShowsIt() async throws {
+        var colored = Self.summary
+        colored.flagColor = "orange"
+        let fake = store { $0.indexPage = SearchPage(items: [colored], truncated: false) }
+        let output = try await run("search_mail", ["flag_color": "ORANGE"], on: fake)
+        #expect(fake.read(\.searchQuery)?.flagColor == .orange)
+        #expect(output.text.contains("[unread, flagged orange]"))
+        let messages = try #require(object(output)["messages"]?.arrayValue)
+        #expect(messages.first?.objectValue?["flag_color"]?.stringValue == "orange")
+        // The color filter also works on the scoped search.
+        let slow = store {
+            $0.fullDiskAccess = false
+            $0.scriptedPage = SearchPage(items: [colored], truncated: false)
+        }
+        _ = try await run("search_mail", ["flag_color": "orange", "mailbox": "INBOX"], on: slow)
+        #expect(slow.read(\.scriptedQuery)?.flagColor == .orange)
+    }
+
+    @Test func getMessageShowsTheFlagColor() async throws {
+        let base = Self.message
+        let flagged = MailMessage(
+            id: base.id, subject: base.subject, from: base.from, to: base.to, cc: base.cc, date: base.date,
+            mailbox: base.mailbox, accountId: base.accountId, read: true, flagged: true, messageId: nil, body: "x",
+            bodySource: "emlx", truncated: false, partial: false, attachments: [], note: nil, flagColor: "purple")
+        let fake = store { $0.message = flagged }
+        let output = try await run("get_message", ["id": "10"], on: fake)
+        #expect(output.text.contains("(flagged purple)"))
+        #expect(object(output)["flag_color"]?.stringValue == "purple")
+    }
+
     @Test func exactly100IdsPass() async throws {
         let refs = Dictionary(
             uniqueKeysWithValues: (1...100).map {

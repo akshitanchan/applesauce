@@ -19,6 +19,20 @@ struct MailboxInfo: Encodable, Sendable, Equatable {
     let unread: Int?
 }
 
+/// The seven flag colors of Mail. `index` is the value of Mail's AppleScript property `flag index`.
+enum FlagColor: String, CaseIterable, Sendable, Equatable {
+    case red, orange, yellow, green, blue, purple, gray
+
+    var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
+    init?(index: Int) {
+        guard Self.allCases.indices.contains(index) else { return nil }
+        self = Self.allCases[index]
+    }
+
+    static var names: String { allCases.map(\.rawValue).joined(separator: ", ") }
+}
+
 struct MessageSummary: Encodable, Sendable, Equatable {
     /// The Envelope Index ROWID, as text.
     let id: String
@@ -31,6 +45,8 @@ struct MessageSummary: Encodable, Sendable, Equatable {
     let read: Bool
     let flagged: Bool
     let hasAttachments: Bool?
+    /// The flag color name, for example `orange`. Nil when the message is not flagged or the color is not known.
+    var flagColor: String? = nil
 }
 
 struct MailMessage: Encodable, Sendable, Equatable {
@@ -55,6 +71,8 @@ struct MailMessage: Encodable, Sendable, Equatable {
     let partial: Bool
     let attachments: [MailAttachment]
     let note: String?
+    /// The flag color name. Nil when the message is not flagged or the color is not known.
+    var flagColor: String? = nil
 }
 
 struct MailAttachment: Encodable, Sendable, Equatable {
@@ -89,6 +107,8 @@ struct MailSearchQuery: Sendable, Equatable {
     var account: String?
     var unread: Bool?
     var flagged: Bool?
+    /// Only flagged messages with this color.
+    var flagColor: FlagColor?
     var since: Date?
     var before: Date?
     var hasAttachments: Bool?
@@ -134,7 +154,8 @@ protocol MailStore: Sendable {
     func reply(to ref: MessageRef, body: String, replyAll: Bool, send: Bool) async throws
     /// `account` is an account name or id. Nil means the account of each message.
     func move(_ refs: [MessageRef], mailbox: String, account: String?) async throws
-    func setFlagged(_ refs: [MessageRef], _ flagged: Bool) async throws
+    /// `color` is only used when `flagged` is true. Nil keeps Mail's default flag.
+    func setFlagged(_ refs: [MessageRef], _ flagged: Bool, color: FlagColor?) async throws
     func setRead(_ refs: [MessageRef], _ read: Bool) async throws
     func delete(_ refs: [MessageRef]) async throws
 }
