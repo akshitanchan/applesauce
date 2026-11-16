@@ -38,14 +38,29 @@ public struct ToolSpec: Sendable {
     }
 }
 
-/// What a tool returns: text for the model, plus optional structured data.
+/// An image in a tool result. `data` is base64 text. It becomes an MCP image content block.
+public struct ToolImage: Sendable, Equatable {
+    public let data: String
+    /// For example `image/jpeg`.
+    public let mimeType: String
+
+    public init(data: String, mimeType: String) {
+        self.data = data
+        self.mimeType = mimeType
+    }
+}
+
+/// What a tool returns: text for the model, plus optional structured data and images.
 public struct ToolOutput: Sendable {
     public let text: String
     public let structured: Value?
+    /// Sent after the text, as image content blocks.
+    public let images: [ToolImage]
 
-    public init(text: String, structured: Value? = nil) {
+    public init(text: String, structured: Value? = nil, images: [ToolImage] = []) {
         self.text = text
         self.structured = structured
+        self.images = images
     }
 }
 

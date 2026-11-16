@@ -74,8 +74,12 @@ public struct Registry: Sendable {
             let output = try await withTimeout(seconds: callLimit) {
                 try await route.module.call(name, args)
             }
+            let images = output.images.map {
+                Tool.Content.image(data: $0.data, mimeType: $0.mimeType, annotations: nil, _meta: nil)
+            }
             return CallTool.Result(
-                content: [.text(text: output.text, annotations: nil, _meta: nil)], structuredContent: output.structured)
+                content: [.text(text: output.text, annotations: nil, _meta: nil)] + images,
+                structuredContent: output.structured)
         } catch let error as ToolError {
             return Self.failure(error)
         } catch {

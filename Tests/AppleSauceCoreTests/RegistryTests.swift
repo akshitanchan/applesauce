@@ -1,4 +1,5 @@
 import AppleSauceCore
+import Foundation
 import MCP
 import Testing
 
@@ -61,5 +62,39 @@ import Testing
         }
         let registry = try Registry(available: [Slow()], config: Config(), callLimit: 0.1)
         #expect(errorCode(await registry.call("slow", arguments: nil)) == "TIMEOUT")
+    }
+
+    struct Pictures: Module {
+        let name = "pictures"
+        let permissions: [Permission] = []
+        var tools: [ToolSpec] { [ToolSpec(name: "picture", description: "returns an image")] }
+        func call(_ tool: String, _ args: Arguments) async throws -> ToolOutput {
+            ToolOutput(text: "here", images: [ToolImage(data: "aGVsbG8=", mimeType: "image/png")])
+        }
+    }
+
+    @Test func imagesBecomeImageContentBlocksAfterTheText() async throws {
+        let registry = try Registry(available: [Pictures()], config: Config())
+        let result = await registry.call("picture", arguments: nil)
+        #expect(result.isError == nil && result.content.count == 2)
+        guard case .text(let text, _, _) = result.content[0] else {
+            Issue.record("no text first")
+            return
+        }
+        #expect(text == "here")
+        guard case .image(let data, let mimeType, _, _) = result.content[1] else {
+            Issue.record("no image block")
+            return
+        }
+        #expect(data == "aGVsbG8=" && mimeType == "image/png")
+        // The wire form has the keys that MCP clients read.
+        let json = try String(decoding: JSONEncoder().encode(result.content[1]), as: UTF8.self)
+        #expect(json.contains("\"type\":\"image\"") && json.contains("\"mimeType\":\"image\\/png\""))
+        #expect(json.contains("\"data\":\"aGVsbG8=\""))
+    }
+
+    @Test func outputsWithoutImagesStayOneTextBlock() async throws {
+        let ok = try await registry().call("fake_read", arguments: ["q": "x"])
+        #expect(ok.content.count == 1)
     }
 }
