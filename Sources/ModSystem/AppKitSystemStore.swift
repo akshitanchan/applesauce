@@ -41,19 +41,21 @@ actor AppKitSystemStore: SystemStore {
     /// Inside applesauce.app the notification shows the applesauce icon. A bare binary cannot use the
     /// notification framework, and a missing or denied permission falls back too: then the AppleScript
     /// notification shows the Script Editor icon, but the user still sees it.
-    func notify(title: String, message: String, subtitle: String?) async throws {
+    /// Without a title, the notification center shows the app name. The script would show "Script Editor", so it
+    /// gets "applesauce".
+    func notify(title: String?, message: String, subtitle: String?) async throws {
         if Bundle.main.bundleURL.pathExtension == "app",
             await Self.postWithNotificationCenter(title: title, message: message, subtitle: subtitle)
         {
             return
         }
         _ = try await AppleScript.run(
-            Self.notifyScript, arguments: [title, message, subtitle ?? ""], timeout: 15)
+            Self.notifyScript, arguments: [title ?? "applesauce", message, subtitle ?? ""], timeout: 15)
     }
 
     /// True when the notification center took the notification. Without permission yet, it asks in the
     /// background and returns false at once, so this notification uses the fallback and the next ones the icon.
-    private static func postWithNotificationCenter(title: String, message: String, subtitle: String?) async -> Bool {
+    private static func postWithNotificationCenter(title: String?, message: String, subtitle: String?) async -> Bool {
         let allowed = try? await withTimeout(seconds: 5) { try await permission() }
         guard allowed == true else { return false }
         return
@@ -82,9 +84,9 @@ actor AppKitSystemStore: SystemStore {
         }
     }
 
-    private static func add(title: String, message: String, subtitle: String?) async throws -> Bool {
+    private static func add(title: String?, message: String, subtitle: String?) async throws -> Bool {
         let content = UNMutableNotificationContent()
-        content.title = title
+        if let title { content.title = title }
         content.body = message
         if let subtitle { content.subtitle = subtitle }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)

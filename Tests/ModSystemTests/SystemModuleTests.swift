@@ -63,9 +63,8 @@ import Testing
                 ("set_clipboard", [:]),
                 ("set_clipboard", ["text": ""]),
                 ("set_clipboard", ["text": 3]),
-                ("notify", ["message": "m"]),
                 ("notify", ["title": "t"]),
-                ("notify", ["title": "", "message": "m"]),
+                ("notify", ["title": 1, "message": "m"]),
                 ("notify", ["title": "t", "message": "m", "subtitle": 1]),
                 ("open", [:]),
                 ("open", ["url": "https://example.com", "path": .string(file)]),
@@ -141,6 +140,15 @@ import Testing
         #expect(sent.subtitle == "sub")
         _ = try await run("notify", ["title": "t", "message": "m", "subtitle": ""], on: fake)
         #expect(fake.read(\.notified)?.subtitle == nil)
+    }
+
+    @Test func notifyWithoutTitleLeavesItToMacOS() async throws {
+        let fake = store()
+        let output = try await run("notify", ["message": "hi"], on: fake)
+        #expect(fake.read(\.notified)?.title == nil)
+        #expect(output.text.contains("'hi'"))
+        _ = try await run("notify", ["title": "", "message": "hi"], on: fake)
+        #expect(fake.read(\.notified)?.title == nil)
     }
 
     @Test func notifyScriptTakesValuesFromArgvOnly() {

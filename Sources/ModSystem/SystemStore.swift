@@ -14,7 +14,7 @@ struct ClipboardContent: Sendable, Equatable {
 protocol SystemStore: Sendable {
     func clipboard() async -> ClipboardContent
     func setClipboard(_ text: String) async throws
-    func notify(title: String, message: String, subtitle: String?) async throws
+    func notify(title: String?, message: String, subtitle: String?) async throws
     /// Opens a URL or a file in its default app.
     func open(_ url: URL) async throws
 }

@@ -55,13 +55,14 @@ public struct SystemModule: Module {
                 required: ["text"], write: true, idempotent: true),
             ToolSpec(
                 name: "notify",
-                description: "Show a macOS notification.",
+                description:
+                    "Show a macOS notification. macOS shows the applesauce icon, so never put 'applesauce' in the text. Give a 'title' only when it adds information, like an event name or a headline. Leave it out for a short message: macOS then shows the app name as the title.",
                 properties: [
-                    "title": Self.property("string", "Notification title."),
+                    "title": Self.property("string", "Optional bold first line, like an event name or a headline."),
                     "message": Self.property("string", "Notification text."),
                     "subtitle": Self.property("string", "Optional line under the title."),
                 ],
-                required: ["title", "message"], write: true),
+                required: ["message"], write: true),
             ToolSpec(
                 name: "open",
                 description:
@@ -215,11 +216,12 @@ public struct SystemModule: Module {
     }
 
     private func notify(_ args: Arguments) async throws -> ToolOutput {
-        let title = try args.requiredString("title")
+        let title = try args.string("title").flatMap { $0.isEmpty ? nil : $0 }
         let message = try args.requiredString("message")
         let subtitle = try args.string("subtitle").flatMap { $0.isEmpty ? nil : $0 }
         try await backend { try await $0.notify(title: title, message: message, subtitle: subtitle) }
-        return try ToolOutput(text: "Showed the notification '\(title)'.", payload: Done(done: "notify", target: nil))
+        return try ToolOutput(
+            text: "Showed the notification '\(title ?? message)'.", payload: Done(done: "notify", target: nil))
     }
 
     private func open(_ args: Arguments) async throws -> ToolOutput {

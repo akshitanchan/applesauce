@@ -8,7 +8,7 @@ final class FakeSystemStore: SystemStore, @unchecked Sendable {
     struct State {
         var clipboard = ClipboardContent(text: nil, types: [])
         var calls: [String] = []
-        var notified: (title: String, message: String, subtitle: String?)?
+        var notified: (title: String?, message: String, subtitle: String?)?
         var opened: [URL] = []
         var delay: Double = 0
         var failure: ToolError?
@@ -50,7 +50,7 @@ final class FakeSystemStore: SystemStore, @unchecked Sendable {
         write { $0.clipboard = ClipboardContent(text: text, types: ["public.utf8-plain-text"]) }
     }
 
-    func notify(title: String, message: String, subtitle: String?) async throws {
+    func notify(title: String?, message: String, subtitle: String?) async throws {
         write {
             $0.calls.append("notify")
             $0.notified = (title, message, subtitle)
