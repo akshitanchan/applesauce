@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.applesauce</string>
+	<key>CFBundleName</key>
+	<string>applesauce</string>
+	<key>CFBundleExecutable</key>
+	<string>applesauce</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>applesauce reads and changes your calendar events when your AI assistant asks it to.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>applesauce reads and changes your reminders when your AI assistant asks it to.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>applesauce searches your contacts when your AI assistant asks it to.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>applesauce controls Mail, Notes and other apps when your AI assistant asks it to.</string>
+</dict>
+</plist>
