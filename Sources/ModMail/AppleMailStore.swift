@@ -254,6 +254,60 @@ struct AppleMailStore: MailStore {
         return refs
     }
 
+    // MARK: attachments
+
+    func saveAttachment(_ ref: MessageRef, pick: AttachmentPick, into folder: URL, limit: Int) async throws
+        -> SavedAttachment
+    {
+        if hasFullDiskAccess(), let versionFolder = try? Self.latestVersionFolder(in: mailRoot) {
+            guard
+                let found = EmlxLocator(root: versionFolder).find(
+                    accountId: ref.accountId, mailbox: ref.mailbox, rowid: ref.id)
+            else {
+                throw ToolError(
+                    .notFound, "The file of this message is not on this Mac. Mail may not have downloaded it.",
+                    fix: "Open the message in Mail so that it downloads, then try again.")
+            }
+            return try MailAttachments.save(emlx: found, rowid: ref.id, pick: pick, into: folder, limit: limit)
+        }
+        // Without Full Disk Access, Mail saves the file itself.
+        try await ensureRunning()
+        let target = folder.appendingPathComponent("saved-by-mail", isDirectory: false)
+        let (mode, value): (String, String) =
+            switch pick {
+            case .index(let number): ("index", String(number))
+            case .name(let name): ("name", name)
+            }
+        let text = try await MailScripts.run(
+            MailScripts.saveAttachment, [ref.accountId, ref.mailbox, ref.id, mode, value, target.path, String(limit)],
+            timeout: writeTimeout)
+        let fields = text.split(separator: MailScripts.fieldSeparator, omittingEmptySubsequences: false).map(
+            String.init)
+        let name = fields.first.flatMap { $0.isEmpty ? nil : $0 } ?? "attachment"
+        let size = (try? target.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        guard let size, size > 0 else {
+            throw ToolError(
+                .internalError, "Mail did not save the attachment '\(name)'.",
+                fix:
+                    "Grant Full Disk Access so that applesauce can read the message file, or save the attachment in Mail."
+            )
+        }
+        guard size <= limit else {
+            try? FileManager.default.removeItem(at: target)
+            throw AttachmentCache.tooLarge(name: name, bytes: size, limit: limit)
+        }
+        let file = folder.appendingPathComponent(AttachmentCache.sanitize(name), isDirectory: false)
+        do {
+            if file.path != target.path { try FileManager.default.moveItem(at: target, to: file) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch {
+            throw ToolError(
+                .internalError, "applesauce could not keep the attachment: \(error.localizedDescription)",
+                fix: "Check that \(folder.path) can be written, then try again.")
+        }
+        return SavedAttachment(file: file, name: name, size: size)
+    }
+
     // MARK: writes
 
     func compose(_ mail: OutgoingMail, send: Bool) async throws {

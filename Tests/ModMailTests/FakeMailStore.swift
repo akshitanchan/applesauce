@@ -35,6 +35,11 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         var read: (refs: [MessageRef], value: Bool)?
         var deleted: [MessageRef]?
         var writeDelay: Double = 0
+        /// What `saveAttachment` writes, and under which name.
+        var attachmentData = Data("attachment text".utf8)
+        var attachmentName = "notes.txt"
+        var attachmentError: ToolError?
+        var savedAttachment: (ref: MessageRef, pick: AttachmentPick, limit: Int)?
     }
 
     private let lock = NSLock()
@@ -124,6 +129,19 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
     private func delay() async throws {
         let seconds = read(\.writeDelay)
         if seconds > 0 { try await Task.sleep(nanoseconds: UInt64(seconds * 1e9)) }
+    }
+
+    func saveAttachment(_ ref: MessageRef, pick: AttachmentPick, into folder: URL, limit: Int) async throws
+        -> SavedAttachment
+    {
+        write {
+            $0.calls.append("saveAttachment")
+            $0.savedAttachment = (ref, pick, limit)
+        }
+        if let error = read(\.attachmentError) { throw error }
+        let (data, name) = (read(\.attachmentData), read(\.attachmentName))
+        let file = try AttachmentCache.write(data, name: name, into: folder)
+        return SavedAttachment(file: file, name: name, size: data.count)
     }
 
     func compose(_ mail: OutgoingMail, send: Bool) async throws {

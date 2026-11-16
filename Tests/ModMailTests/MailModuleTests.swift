@@ -56,12 +56,13 @@ import Testing
         let mail = module(store())
         #expect(
             mail.tools.map(\.tool.name) == [
-                "list_accounts", "list_mailboxes", "search_mail", "get_message", "create_draft", "send_mail", "reply",
-                "move_message", "flag_message", "mark_read", "delete_message",
+                "list_accounts", "list_mailboxes", "search_mail", "get_message", "get_mail_attachment", "create_draft",
+                "send_mail", "reply", "move_message", "flag_message", "mark_read", "delete_message",
             ])
         #expect(
             Set(mail.tools.filter(\.isWrite).map(\.tool.name)) == [
-                "create_draft", "send_mail", "reply", "move_message", "flag_message", "mark_read", "delete_message",
+                "get_mail_attachment", "create_draft", "send_mail", "reply", "move_message", "flag_message",
+                "mark_read", "delete_message",
             ])
         let destructive = mail.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name)
         #expect(Set(destructive) == ["send_mail", "reply", "move_message", "delete_message"])
@@ -240,7 +241,7 @@ import Testing
         let output = try await run("get_message", ["id": "10"], on: fake)
         #expect(fake.read(\.calls) == ["indexMessage"])
         #expect(output.text.contains("Subject: Hello") && output.text.contains("Body text"))
-        #expect(output.text.contains("a.pdf (2 KB)"))
+        #expect(output.text.contains("Attachments: 1. a.pdf (2 KB)"))
         let data = object(output)
         #expect(data["body_source"]?.stringValue == "emlx")
         #expect(data["attachments"]?.arrayValue?.first?.objectValue?["size"]?.intValue == 2048)

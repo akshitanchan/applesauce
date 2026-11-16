@@ -297,6 +297,54 @@ enum MailScripts {
             end run
             """
 
+    /// argv: account spec, mailbox path, id, mode (`index` or `name`), the index or the name, the file to write,
+    /// the size limit in bytes. Output (one record): the attachment name, the size in bytes.
+    /// Error numbers: 1001 no such attachment, 1003 above the limit, 1004 the name is not unique,
+    /// 1005 Mail has not downloaded the attachment.
+    /// It only saves a file. It changes nothing in Mail.
+    static let saveAttachment =
+        prelude + """
+
+
+            on run argv
+                set msg to my findMessage(item 1 of argv, item 2 of argv, item 3 of argv)
+                set mode to item 4 of argv
+                set wanted to item 5 of argv
+                set limitBytes to (item 7 of argv) as integer
+                tell application "Mail"
+                    set atts to mail attachments of msg
+                    set total to count of atts
+                    set slot to 0
+                    if mode is "index" then
+                        set slot to wanted as integer
+                        if slot < 1 or slot > total then my failWith(1001, "The message has " & total & " attachments, and none is number " & wanted & ".")
+                    else
+                        repeat with i from 1 to total
+                            if (name of item i of atts) is wanted then
+                                if slot is not 0 then my failWith(1004, "More than one attachment is named '" & wanted & "'.")
+                                set slot to i
+                            end if
+                        end repeat
+                        if slot is 0 then my failWith(1001, "The message has no attachment named '" & wanted & "'.")
+                    end if
+                    set att to item slot of atts
+                    set attName to name of att
+                    set attSize to 0
+                    try
+                        set attSize to file size of att
+                    end try
+                    if attSize > limitBytes then my failWith(1003, "The attachment '" & attName & "' is " & attSize & " bytes. The limit is " & limitBytes & " bytes.")
+                    set isDownloaded to true
+                    try
+                        set isDownloaded to downloaded of att
+                    end try
+                    if not isDownloaded then my failWith(1005, "Mail has not downloaded the attachment '" & attName & "' yet.")
+                    save att in (POSIX file (item 6 of argv))
+                    return my safeText(attName) & fs & (attSize as text)
+                end tell
+            end run
+            """
+
     // MARK: writes
 
     /// argv: action (`flag`, `color`, `read`, `move`, `delete`), value (`true` or `false`, the flag index for `color`,
@@ -481,16 +529,43 @@ enum MailScripts {
 
     // MARK: running
 
-    /// Runs a script. The script's own error number 1001 (not found) becomes `NOT_FOUND`.
+    /// More error numbers that the scripts raise on purpose: above the size limit, name not unique,
+    /// attachment not downloaded.
+    static let tooLargeNumber = 1003
+    static let ambiguousNumber = 1004
+    static let notDownloadedNumber = 1005
+
+    /// Runs a script. The script's own error numbers become tool errors (see `scriptError`).
     static func run(_ script: String, _ arguments: [String], timeout: Double) async throws -> String {
         do {
             return try await AppleScript.run(
                 script, arguments: arguments, permission: .automationMail, appName: "Mail", timeout: timeout)
         } catch let error as ToolError where error.code == .internalError {
-            guard AppleScript.errorNumber(in: error.message) == notFoundNumber else { throw error }
-            throw ToolError(
-                .notFound, cleanMessage(error.message),
-                fix: "Check the id with search_mail, and the mailbox with list_mailboxes.")
+            throw scriptError(error)
+        }
+    }
+
+    /// Turns an error that a script raised on purpose into its tool error. Other errors stay as they are.
+    static func scriptError(_ error: ToolError) -> ToolError {
+        let message = cleanMessage(error.message)
+        switch AppleScript.errorNumber(in: error.message) {
+        case notFoundNumber:
+            return ToolError(
+                .notFound, message,
+                fix: message.contains("attachment")
+                    ? "Check the attachments with get_message."
+                    : "Check the id with search_mail, and the mailbox with list_mailboxes.")
+        case tooLargeNumber:
+            return ToolError(
+                .invalidInput, message, fix: "Open the message in Mail and save the attachment there.")
+        case ambiguousNumber:
+            return ToolError(.ambiguous, message, fix: "Give 'index' instead of 'name'.")
+        case notDownloadedNumber:
+            return ToolError(
+                .notFound, message,
+                fix: "Open the message in Mail so that it downloads the attachment, then try again.")
+        default:
+            return error
         }
     }
 
@@ -498,7 +573,7 @@ enum MailScripts {
     static func cleanMessage(_ text: String) -> String {
         var message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = message.range(of: "execution error: ") { message = String(message[range.upperBound...]) }
-        if let match = message.firstMatch(of: #/\s*\(1001\)\s*$/#) {
+        if let match = message.firstMatch(of: #/\s*\(100[1-5]\)\s*$/#) {
             message = String(message[..<match.range.lowerBound])
         }
         return message

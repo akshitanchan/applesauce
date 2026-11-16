@@ -153,6 +153,12 @@ protocol MailStore: Sendable {
     /// Where messages live (from the index). Throws `NOT_FOUND` for an unknown id.
     func locate(ids: [String]) async throws -> [MessageRef]
 
+    /// Saves one attachment of a message as a file in `folder` (the folder exists). It reads the message file, or,
+    /// without Full Disk Access, asks Mail to save it. It refuses an attachment above `limit` bytes before it reads
+    /// the bytes. It throws `NOT_FOUND` when the attachment does not exist or Mail has not downloaded it.
+    func saveAttachment(_ ref: MessageRef, pick: AttachmentPick, into folder: URL, limit: Int) async throws
+        -> SavedAttachment
+
     func compose(_ mail: OutgoingMail, send: Bool) async throws
     func reply(to ref: MessageRef, body: String, replyAll: Bool, send: Bool) async throws
     /// `account` is an account name or id. Nil means the account of each message.

@@ -13,6 +13,9 @@ public struct MailModule: Module {
     let store: any MailStore
     let backendTimeout: Double
     let writeTimeout: Double
+    /// Where `get_mail_attachment` saves files, and the largest file it saves.
+    let attachmentRoot: URL
+    let attachmentLimit: Int
 
     /// The real module, backed by the Envelope Index and AppleScript.
     #if os(macOS)
@@ -21,10 +24,15 @@ public struct MailModule: Module {
     }
     #endif
 
-    init(store: any MailStore, backendTimeout: Double = 30, writeTimeout: Double = 60) {
+    init(
+        store: any MailStore, backendTimeout: Double = 30, writeTimeout: Double = 60,
+        attachmentRoot: URL = AttachmentCache.defaultRoot, attachmentLimit: Int = AttachmentCache.maxBytes
+    ) {
         self.store = store
         self.backendTimeout = backendTimeout
         self.writeTimeout = writeTimeout
+        self.attachmentRoot = attachmentRoot
+        self.attachmentLimit = attachmentLimit
     }
 
     /// Most messages that one call may change.
@@ -62,6 +70,9 @@ public struct MailModule: Module {
             "description": .string(description),
         ])
     }
+
+    private static let attachmentNote =
+        "Needs 'confirm' true on every call. Ask the user first, because the file is copied to ~/Library/Caches/applesauce/attachments."
 
     private static let openNote =
         "If Mail is not running, applesauce opens it hidden in the background and leaves it open."
@@ -116,12 +127,29 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "get_message",
                 description:
-                    "Get one message: headers, plain text body (cut at 100000 characters) and the names and sizes of attachments. Attachment content is never returned.",
+                    "Get one message: headers, plain text body (cut at 100000 characters) and the numbered names and sizes of attachments. Attachment content is not returned here. Use get_mail_attachment for that.",
                 properties: [
                     "id": Self.property("string", "Message id from search_mail."),
                     "in_mailbox": Self.inMailbox, "in_account": Self.inAccount,
                 ],
                 required: ["id"]),
+            ToolSpec(
+                name: "get_mail_attachment",
+                description:
+                    "Save one attachment of a message as a file on this Mac and return its absolute path. Images (JPEG, PNG, GIF, WebP, HEIC) are also returned as an image. PDF, text, RTF, DOC and DOCX files are also returned as text (cut at 100000 characters). Other types return the path only. Files above 25 MB are refused. Attachments of Mail that are not downloaded yet cannot be saved. The file is kept for 24 hours. Give the attachment by 'name' or 'index' from get_message. \(Self.attachmentNote)",
+                properties: [
+                    "id": Self.property("string", "Message id from search_mail."),
+                    "name": Self.property(
+                        "string", "Attachment name from get_message. Give 'name' or 'index', not both."),
+                    "index": Self.property("integer", "Attachment number from get_message. The first is 1."),
+                    "confirm": Self.property(
+                        "boolean",
+                        "Must be true. Ask the user first: the call copies the attachment to this Mac."),
+                    "in_mailbox": Self.inMailbox, "in_account": Self.inAccount,
+                ],
+                required: ["id"],
+                // It writes a file to the Mac and can copy private content out of Mail, so `--read-only` hides it.
+                write: true),
             ToolSpec(
                 name: "create_draft",
                 description:
@@ -211,6 +239,7 @@ public struct MailModule: Module {
         case "list_mailboxes": return try await listMailboxes(args)
         case "search_mail": return try await searchMail(args)
         case "get_message": return try await getMessage(args)
+        case "get_mail_attachment": return try await getAttachment(args)
         case "create_draft": return try await composeMail(args, tool: tool)
         case "send_mail": return try await composeMail(args, tool: tool)
         case "reply": return try await replyToMessage(args)
@@ -574,11 +603,11 @@ public struct MailModule: Module {
         let flag = message.flagged ? " (\(message.flagColor.map { "flagged \($0)" } ?? "flagged"))" : ""
         lines.append("Mailbox: \(message.mailbox)\(message.read ? "" : " (unread)")\(flag)")
         if !message.attachments.isEmpty {
-            let list = message.attachments.map { attachment in
-                attachment.size.map {
-                    "\(attachment.name) (\(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)))"
+            let list = message.attachments.enumerated().map { offset, attachment in
+                let size = attachment.size.map {
+                    " (\(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)))"
                 }
-                    ?? attachment.name
+                return "\(offset + 1). \(attachment.name)\(size ?? "")"
             }
             lines.append("Attachments: \(list.joined(separator: ", "))")
         }
@@ -587,6 +616,70 @@ public struct MailModule: Module {
         lines.append(message.body ?? "(No body available.)")
         if message.truncated { lines.append("\n(Body cut at \(MailScripts.bodyLimit) characters.)") }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: attachments
+
+    /// Exactly one of 'name' and 'index'.
+    private func attachmentPick(_ args: Arguments) throws -> AttachmentPick {
+        let name = try args.string("name")
+        let index = try args.int("index")
+        switch (name, index) {
+        case (nil, nil):
+            throw ToolError(
+                .invalidInput, "Give 'name' or 'index' to say which attachment you want.",
+                fix: "Use a name or a number from get_message.")
+        case (.some, .some):
+            throw ToolError.invalidInput("Give 'name' or 'index', not both.")
+        case (let name?, nil):
+            guard !name.isEmpty, !name.contains("\0") else {
+                throw ToolError.invalidInput("'name' must not be empty and must not contain a NUL character.")
+            }
+            return .name(name)
+        case (nil, let index?):
+            guard index >= 1 else {
+                throw ToolError(
+                    .invalidInput, "'index' must be 1 or more.", fix: "The first attachment is number 1.")
+            }
+            return .index(index)
+        }
+    }
+
+    static let confirmAttachmentError = ToolError(
+        .invalidInput, "Saving an attachment needs the user's OK, and 'confirm' is not true. Nothing was saved.",
+        fix:
+            "Ask the user whether applesauce may save this attachment on this Mac. If the user agrees, call again with 'confirm' true."
+    )
+
+    private func getAttachment(_ args: Arguments) async throws -> ToolOutput {
+        let id = try requiredID(args)
+        let pick = try attachmentPick(args)
+        let confirmed = try args.bool("confirm") == true
+        let place = try location(args)
+        guard confirmed else { throw Self.confirmAttachmentError }
+
+        AttachmentCache.sweep(root: attachmentRoot)
+        let ref = try await refs([id], at: place)[0]
+        let folder = try AttachmentCache.makeFolder(root: attachmentRoot)
+        let limit = attachmentLimit
+        do {
+            let saved = try await backend(seconds: writeTimeout) {
+                try await $0.saveAttachment(ref, pick: pick, into: folder, limit: limit)
+            }
+            // The store checks the size before it reads. This is a second check of the file that it wrote.
+            guard saved.size <= limit else {
+                throw AttachmentCache.tooLarge(name: saved.name, bytes: saved.size, limit: limit)
+            }
+            return try await backend {
+                _ in
+                try AttachmentOutput.make(
+                    file: saved.file, name: saved.name, size: saved.size, textLimit: MailScripts.bodyLimit)
+            }
+        } catch {
+            // Nothing stays behind for a failed call.
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
     }
 
     // MARK: write tools

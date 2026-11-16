@@ -13,6 +13,22 @@ struct ParsedMail: Sendable, Equatable {
     var attachments: [MailAttachment]
 }
 
+/// One attachment part of a message, with its bytes. Only `MIMEReader.attachmentParts` makes these.
+struct AttachmentPart: Sendable, Equatable {
+    var name: String
+    /// Mail's number for the part, for example `1.2` (second part inside the first). It names the folder where Mail
+    /// keeps an attachment that is not inside the `.emlx` file.
+    var partID: String
+    /// The decoded size in bytes. For a part without bytes, the size that Mail wrote in `X-Apple-Content-Length`.
+    var size: Int
+    var encoding: String
+    /// The bytes as written in the message, still encoded. Empty when Mail keeps the attachment elsewhere.
+    var body: [UInt8]
+
+    /// The bytes of the attachment after the transfer decoding.
+    func decoded() -> [UInt8] { MIMEReader.transferDecode(body, encoding) }
+}
+
 /// A small MIME reader for `.emlx` files.
 /// It handles multipart, quoted-printable, base64, encoded header words and the common charsets.
 enum MIMEReader {
@@ -49,10 +65,18 @@ enum MIMEReader {
 
     // MARK: parse
 
+    /// The attachment parts of a message, in the same order as `parse(_:).attachments`, with their bytes.
+    static func attachmentParts(_ bytes: [UInt8]) -> [AttachmentPart] {
+        var found = Found()
+        found.keepParts = true
+        walk(entity(from: bytes), into: &found, depth: 0, partID: "")
+        return found.parts
+    }
+
     static func parse(_ bytes: [UInt8]) -> ParsedMail {
         let entity = entity(from: bytes)
         var found = Found()
-        walk(entity, into: &found, depth: 0)
+        walk(entity, into: &found, depth: 0, partID: "")
         let plain = found.plain.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         let body = plain.isEmpty ? htmlToText(found.html.joined(separator: "\n")) : plain
         func header(_ name: String) -> String? {
@@ -72,6 +96,9 @@ enum MIMEReader {
         var plain: [String] = []
         var html: [String] = []
         var attachments: [MailAttachment] = []
+        /// Set by `attachmentParts`. `parse` never keeps attachment bytes.
+        var keepParts = false
+        var parts: [AttachmentPart] = []
     }
 
     private static func entity(from bytes: [UInt8]) -> Entity {
@@ -123,7 +150,7 @@ enum MIMEReader {
 
     // MARK: structure
 
-    private static func walk(_ entity: Entity, into found: inout Found, depth: Int) {
+    private static func walk(_ entity: Entity, into found: inout Found, depth: Int, partID: String) {
         guard depth < 12 else { return }
         let type = headerValue(entity.headers["content-type"] ?? "text/plain")
         let disposition = headerValue(entity.headers["content-disposition"] ?? "")
@@ -133,8 +160,9 @@ enum MIMEReader {
 
         if mime.hasPrefix("multipart/") {
             guard let boundary = type.params["boundary"], !boundary.isEmpty else { return }
-            for part in splitMultipart(entity.body, boundary: boundary) {
-                walk(Self.entity(from: part), into: &found, depth: depth + 1)
+            for (offset, part) in splitMultipart(entity.body, boundary: boundary).enumerated() {
+                let childID = partID.isEmpty ? "\(offset + 1)" : "\(partID).\(offset + 1)"
+                walk(Self.entity(from: part), into: &found, depth: depth + 1, partID: childID)
             }
             return
         }
@@ -149,14 +177,23 @@ enum MIMEReader {
             return
         }
         guard isAttachment || filename != nil || mime == "message/rfc822" else { return }
-        let size: Int
+        var size: Int
         switch encoding {
         case "base64": size = base64Size(entity.body)
         case "quoted-printable": size = decodeQuotedPrintable(entity.body).count
         default: size = entity.body.count
         }
+        // A `.partial.emlx` file has no bytes for an attachment, but Mail writes its real size in a header.
+        if size == 0, let declared = entity.headers["x-apple-content-length"].flatMap({ Int($0) }) { size = declared }
         let fallback = mime == "message/rfc822" ? "message.eml" : "attachment"
-        found.attachments.append(MailAttachment(name: filename ?? fallback, size: size))
+        let name = filename ?? fallback
+        found.attachments.append(MailAttachment(name: name, size: size))
+        if found.keepParts {
+            found.parts.append(
+                AttachmentPart(
+                    name: name, partID: partID.isEmpty ? "1" : partID, size: size, encoding: encoding,
+                    body: entity.body))
+        }
     }
 
     /// The parts between the boundary lines.
