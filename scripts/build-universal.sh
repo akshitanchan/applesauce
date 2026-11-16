@@ -8,7 +8,15 @@ cd "$root"
 
 swift build -c release --arch arm64 --arch x86_64
 
-built="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/applesauce"
+# Older SwiftPM versions fail on --show-bin-path with two archs, so fall back to the folder they use.
+bin_path="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path 2>/dev/null || true)"
+built=""
+found="$(find .build -path '*Products/Release/applesauce' -type f -perm -u+x 2>/dev/null | head -n 1)"
+for candidate in "$bin_path/applesauce" ".build/apple/Products/Release/applesauce" "$found"; do
+  if [[ -n "$candidate" && -x "$candidate" ]]; then built="$candidate"; break; fi
+done
+[[ -n "$built" ]] || { echo "build-universal.sh: cannot find the built binary" >&2; exit 1; }
+echo "binary: $built"
 mkdir -p dist
 cp "$built" dist/applesauce
 scripts/sign.sh dist/applesauce
