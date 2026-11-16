@@ -1,22 +1,6 @@
 import AppleSauceCore
 import Foundation
 
-/// Which attachment of a message the caller wants.
-enum AttachmentPick: Sendable, Equatable {
-    /// The position in the attachment list of `get_message`, starting at 1.
-    case index(Int)
-    /// The file name. It must be unambiguous.
-    case name(String)
-}
-
-/// An attachment that is saved as a file.
-struct SavedAttachment: Sendable, Equatable {
-    let file: URL
-    /// The original name from the message (the file name on disk is the sanitized form).
-    let name: String
-    let size: Int
-}
-
 /// Finds one attachment in a message file and saves it. It reads the bytes from the `.emlx` file, or, when Mail keeps
 /// the attachment in its own folder (a `.partial.emlx` file), from `Attachments/<message id>/<part number>/`.
 enum MailAttachments {
@@ -24,37 +8,7 @@ enum MailAttachments {
 
     /// The position (from 0) of the attachment that `pick` means. It throws `NOT_FOUND` or `AMBIGUOUS`.
     static func resolve(_ pick: AttachmentPick, in names: [String]) throws -> Int {
-        guard !names.isEmpty else {
-            throw ToolError(
-                .notFound, "The message has no attachments.", fix: "Check the message with get_message.")
-        }
-        let list = names.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: ", ")
-        switch pick {
-        case .index(let number):
-            guard names.indices.contains(number - 1) else {
-                throw ToolError(
-                    .notFound, "The message has \(names.count) attachments, and none is number \(number). \(list).",
-                    fix: "Use a number from 1 to \(names.count).")
-            }
-            return number - 1
-        case .name(let wanted):
-            var matches = names.indices.filter { names[$0] == wanted }
-            if matches.isEmpty {
-                matches = names.indices.filter { names[$0].caseInsensitiveCompare(wanted) == .orderedSame }
-            }
-            guard let first = matches.first else {
-                throw ToolError(
-                    .notFound, "The message has no attachment named '\(wanted)'. Attachments: \(list).",
-                    fix: "Use a name from get_message, or give 'index'.")
-            }
-            guard matches.count == 1 else {
-                let numbers = matches.map { String($0 + 1) }.joined(separator: ", ")
-                throw ToolError(
-                    .ambiguous, "More than one attachment is named '\(wanted)' (numbers \(numbers)).",
-                    fix: "Give 'index' instead of 'name'.")
-            }
-            return first
-        }
+        try pick.resolve(in: names, owner: "message")
     }
 
     // MARK: saving from the message file

@@ -17,6 +17,9 @@ enum NotesScripts {
     /// Error numbers that the scripts raise on purpose. `run` turns them into tool errors.
     static let notFoundNumber = 1001
     static let lockedNumber = 1002
+    /// More than one attachment has the name. Notes could not save an attachment to a file.
+    static let ambiguousNumber = 1004
+    static let exportNumber = 1006
 
     /// Longest plain text body that a tool returns, in characters.
     static let bodyLimit = 100_000
@@ -341,7 +344,8 @@ enum NotesScripts {
             """
 
     /// argv: note id, include html (`true` or `false`).
-    /// Output (one record): id, name, folder, account, created, modified, plain text, html.
+    /// Output (one record): id, name, folder, account, created, modified, attachment names (separated by character 29),
+    /// plain text, html.
     /// A locked note fails with error 1002 before any text is read.
     /// The plain text is cut at one character more than the limit, so the caller can see the cut.
     static let note =
@@ -364,8 +368,61 @@ enum NotesScripts {
                     set html to ""
                     if (item 2 of argv) is "true" then set html to body of props
                 end tell
+                set attNames to {}
+                try
+                    tell application "Notes" to set attNames to name of attachments of nt
+                end try
+                set attList to {}
+                repeat with attName in attNames
+                    set shownName to my clean(contents of attName)
+                    if shownName is "" then set shownName to "(no name)"
+                    set end of attList to shownName
+                end repeat
                 set place to my placeOf(nt)
-                return noteId & fs & my clean(noteName) & fs & my clean(item 1 of place) & fs & my clean(item 2 of place) & fs & my formatDate(createdAt) & fs & my formatDate(modifiedAt) & fs & my clean(my clip(plainBody, \(bodyLimit + 1))) & fs & my clean(html)
+                return noteId & fs & my clean(noteName) & fs & my clean(item 1 of place) & fs & my clean(item 2 of place) & fs & my formatDate(createdAt) & fs & my formatDate(modifiedAt) & fs & my joinList(attList, character id 29) & fs & my clean(my clip(plainBody, \(bodyLimit + 1))) & fs & my clean(html)
+            end run
+            """
+
+    /// argv: note id, mode (`index` or `name`), the index or the name, the file to write.
+    /// Output: the attachment name. Error numbers: 1001 no such attachment, 1002 locked note, 1004 the name is not unique,
+    /// 1006 Notes could not save the attachment (drawings, scans, tables and links cannot be saved).
+    /// It only saves a file. It changes nothing in Notes.
+    static let saveAttachment =
+        prelude + """
+
+
+            on run argv
+                set nt to my findNote(item 1 of argv)
+                my failIfLocked(nt)
+                set mode to item 2 of argv
+                set wanted to item 3 of argv
+                tell application "Notes"
+                    set atts to attachments of nt
+                    set total to count of atts
+                    set slot to 0
+                    if mode is "index" then
+                        set slot to wanted as integer
+                        if slot < 1 or slot > total then my failWith(1001, "The note has " & total & " attachments, and none is number " & wanted & ".")
+                    else
+                        repeat with i from 1 to total
+                            if (name of item i of atts) is wanted then
+                                if slot is not 0 then my failWith(1004, "More than one attachment is named '" & wanted & "'.")
+                                set slot to i
+                            end if
+                        end repeat
+                        if slot is 0 then my failWith(1001, "The note has no attachment named '" & wanted & "'.")
+                    end if
+                    set att to item slot of atts
+                    set attName to name of att
+                end tell
+                set shownName to my clean(attName)
+                if shownName is "" then set shownName to "attachment " & slot
+                try
+                    tell application "Notes" to save att in (POSIX file (item 4 of argv))
+                on error errMsg
+                    my failWith(1006, "Notes could not save the attachment '" & shownName & "' (" & errMsg & ").")
+                end try
+                return shownName
             end run
             """
 
@@ -480,19 +537,35 @@ enum NotesScripts {
             case .timeout:
                 throw timeoutError(seconds: timeout, search: search)
             case .internalError:
-                switch AppleScript.errorNumber(in: error.message) {
-                case notFoundNumber:
-                    throw ToolError(
-                        .notFound, cleanMessage(error.message),
-                        fix: "Check the id with search_notes, and the folder with list_folders.")
-                case lockedNumber:
-                    throw lockedError()
-                default:
-                    throw error
-                }
+                throw scriptError(error)
             default:
                 throw error
             }
+        }
+    }
+
+    /// Turns an error that a script raised on purpose into its tool error. Other errors stay as they are.
+    static func scriptError(_ error: ToolError) -> ToolError {
+        let message = cleanMessage(error.message)
+        switch AppleScript.errorNumber(in: error.message) {
+        case notFoundNumber:
+            return ToolError(
+                .notFound, message,
+                fix: message.contains("attachment")
+                    ? "Check the attachments with get_note."
+                    : "Check the id with search_notes, and the folder with list_folders.")
+        case lockedNumber:
+            return lockedError()
+        case ambiguousNumber:
+            return ToolError(.ambiguous, message, fix: "Give 'index' instead of 'name'.")
+        case exportNumber:
+            return ToolError(
+                .invalidInput, message,
+                fix:
+                    "Drawings, scans, tables and links cannot be saved. Open the note in Notes and export the item there."
+            )
+        default:
+            return error
         }
     }
 
@@ -507,7 +580,7 @@ enum NotesScripts {
     static func cleanMessage(_ text: String) -> String {
         var message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = message.range(of: "execution error: ") { message = String(message[range.upperBound...]) }
-        if let match = message.firstMatch(of: #/\s*\((1001|1002)\)\s*$/#) {
+        if let match = message.firstMatch(of: #/\s*\((1001|1002|1004|1006)\)\s*$/#) {
             message = String(message[..<match.range.lowerBound])
         }
         return message
@@ -613,13 +686,17 @@ enum NotesScripts {
 
     /// Reads the output of the `note` script.
     static func parseNote(_ text: String, includeHTML: Bool) -> NotesNote? {
-        let fields = text.split(separator: fieldSeparator, maxSplits: 7, omittingEmptySubsequences: false).map(
+        let fields = text.split(separator: fieldSeparator, maxSplits: 8, omittingEmptySubsequences: false).map(
             String.init)
-        guard fields.count == 8, !fields[0].isEmpty else { return nil }
-        let (body, truncated) = limitBody(fields[6])
+        guard fields.count == 9, !fields[0].isEmpty else { return nil }
+        let (body, truncated) = limitBody(fields[7])
+        let attachments = fields[6].split(separator: "\u{1D}", omittingEmptySubsequences: false).enumerated().map {
+            NoteAttachment(index: $0.offset + 1, name: String($0.element))
+        }
         return NotesNote(
             id: fields[0], name: fields[1], folder: fields[2], account: fields[3], created: parseDate(fields[4]),
-            modified: parseDate(fields[5]), body: body, truncated: truncated, html: includeHTML ? fields[7] : nil)
+            modified: parseDate(fields[5]), body: body, truncated: truncated, html: includeHTML ? fields[8] : nil,
+            attachments: fields[6].isEmpty ? [] : attachments)
     }
 
     /// Reads a header record: id, name, folder, account.

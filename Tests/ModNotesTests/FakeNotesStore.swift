@@ -20,6 +20,10 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         var moved: (id: String, folderId: String)?
         var deleted: String?
         var delay: Double = 0
+        /// What `saveAttachment` writes, and under which name.
+        var attachmentData = Data("note attachment".utf8)
+        var attachmentName = "memo.txt"
+        var savedAttachment: (id: String, pick: AttachmentPick, limit: Int)?
     }
 
     private let lock = NSLock()
@@ -64,6 +68,16 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         try await enter("note")
         guard let note = read(\.note) else { throw ToolError(.notFound, "No note \(id).") }
         return note
+    }
+
+    func saveAttachment(id: String, pick: AttachmentPick, into folder: URL, limit: Int) async throws
+        -> SavedAttachment
+    {
+        write { $0.savedAttachment = (id, pick, limit) }
+        try await enter("saveAttachment")
+        let (data, name) = (read(\.attachmentData), read(\.attachmentName))
+        let file = try AttachmentCache.write(data, name: name, into: folder)
+        return SavedAttachment(file: file, name: name, size: data.count)
     }
 
     func create(html: String, folderId: String?, account: String?) async throws -> NoteRef {

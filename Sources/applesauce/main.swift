@@ -104,6 +104,9 @@ if config.command == .doctor {
     exit(0)
 }
 
+// Saved attachments older than 24 hours are deleted at start. The attachment tools also do this at every call.
+AttachmentCache.sweep()
+
 let server = await ServerFactory.make(registry: registry)
 do {
     try await server.start(transport: StdioTransport())

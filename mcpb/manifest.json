@@ -161,35 +161,39 @@
     },
     {
       "name": "get_message",
-      "description": "Get one message: headers, plain text body (cut at 100000 characters) and the names and sizes of attachments. Attachment content is never returned."
+      "description": "Get one message: headers, plain text body (cut at 100000 characters) and the numbered names and sizes of attachments. Attachment content is not returned here. Use get_mail_attachment for that."
+    },
+    {
+      "name": "get_mail_attachment",
+      "description": "Save one attachment of a message as a file on this Mac and return its absolute path. Images are also returned as an image. PDF, text, RTF, DOC and DOCX files are also returned as text (cut at 100000 characters). Other types return the path only. Files above 25 MB are refused. The file is kept for 24 hours. Needs 'confirm' true on every call. Ask the user first."
     },
     {
       "name": "create_draft",
-      "description": "Save a plain text draft in Mail. Nothing is sent. Mail must be running."
+      "description": "Save a plain text draft in Mail. Nothing is sent. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "send_mail",
-      "description": "Send a plain text email. Without confirm true nothing is sent: the message is saved as a draft. Mail must be running. Sending cannot be undone."
+      "description": "Send a plain text email. Without confirm true nothing is sent: the message is saved as a draft. If Mail is not running, applesauce opens it hidden in the background and leaves it open. Sending cannot be undone."
     },
     {
       "name": "reply",
-      "description": "Reply to a message with plain text. Mail adds the quoted original. Without confirm true nothing is sent: the message is saved as a draft. Mail must be running."
+      "description": "Reply to a message with plain text. Mail adds the quoted original. Without confirm true nothing is sent: the message is saved as a draft. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "move_message",
-      "description": "Move messages (at most 100) to a mailbox. Mail must be running."
+      "description": "Move messages (at most 100) to a mailbox. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "flag_message",
-      "description": "Flag or unflag messages (at most 100). Mail must be running."
+      "description": "Flag or unflag messages (at most 100). Give 'color' (red, orange, yellow, green, blue, purple or gray) to flag with a color. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "mark_read",
-      "description": "Mark messages (at most 100) as read or unread. Mail must be running."
+      "description": "Mark messages (at most 100) as read or unread. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "delete_message",
-      "description": "Delete messages (at most 100). Mail moves them to the Trash mailbox. Mail must be running."
+      "description": "Delete messages (at most 100). Mail moves them to the Trash mailbox. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "list_folders",
@@ -201,7 +205,11 @@
     },
     {
       "name": "get_note",
-      "description": "Get one note: name, folder, account, dates and the plain text body (cut at 100000 characters). Locked notes are not read. Attachments are not returned."
+      "description": "Get one note: name, folder, account, dates and the plain text body (cut at 100000 characters). Locked notes are not read. Attachments are listed (number, name, type) but their content is not returned. Use get_note_attachment for that."
+    },
+    {
+      "name": "get_note_attachment",
+      "description": "Save one attachment of a note as a file on this Mac and return its absolute path. Images are also returned as an image. PDF, text, RTF, DOC and DOCX files are also returned as text (cut at 100000 characters). Other types return the path only. Files above 25 MB are refused. Notes cannot save drawings, scans, tables and links. Locked notes are not read. The file is kept for 24 hours. Needs 'confirm' true on every call. Ask the user first."
     },
     {
       "name": "create_note",

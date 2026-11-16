@@ -158,7 +158,7 @@ import Testing
     }
 
     @Test func parsesNoteOutput() {
-        let fields = ["N1", "Plan", "Notes", "iCloud", "2026-11-11 08:00:00", "2026-11-12 09:30:00"]
+        let fields = ["N1", "Plan", "Notes", "iCloud", "2026-11-11 08:00:00", "2026-11-12 09:30:00", ""]
         let text = (fields + ["Plan\nLine \u{1C} two", "<div>Plan</div>"]).joined(separator: fs)
         let note = NotesScripts.parseNote(text, includeHTML: true)
         #expect(note?.id == "N1" && note?.name == "Plan" && note?.account == "iCloud")
@@ -166,8 +166,52 @@ import Testing
         #expect(note?.created != nil && note?.modified != nil)
         #expect(NotesScripts.parseNote(text, includeHTML: false)?.html == nil)
         #expect(NotesScripts.parseNote("too\(fs)few", includeHTML: false) == nil)
-        let blank = (["N1", "", "", "", "", ""] + ["", ""]).joined(separator: fs)
+        let blank = (["N1", "", "", "", "", ""] + ["", "", ""]).joined(separator: fs)
         #expect(NotesScripts.parseNote(blank, includeHTML: false)?.created == nil)
+        #expect(note?.attachments.isEmpty == true)
+    }
+
+    @Test func parsesTheAttachmentList() {
+        let gs = "\u{1D}"
+        let names = ["IMG_4311.heic", "scan.PDF", "(no name)", "CISCON 2024 - Link", "plan.docx"].joined(separator: gs)
+        let text = (["N1", "Plan", "Notes", "iCloud", "", "", names, "body", ""]).joined(separator: fs)
+        let note = NotesScripts.parseNote(text, includeHTML: false)
+        #expect(note?.attachments.map(\.index) == [1, 2, 3, 4, 5])
+        #expect(
+            note?.attachments.map(\.name) == [
+                "IMG_4311.heic", "scan.PDF", "(no name)", "CISCON 2024 - Link", "plan.docx",
+            ])
+        #expect(
+            note?.attachments.map(\.type) == [
+                "image/heic", "application/pdf", nil, nil,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ])
+        #expect(note?.body == "body")
+        // A note with one attachment keeps it.
+        let single = (["N1", "P", "N", "iCloud", "", "", "only.png", "b", ""]).joined(separator: fs)
+        #expect(NotesScripts.parseNote(single, includeHTML: false)?.attachments.map(\.name) == ["only.png"])
+    }
+
+    @Test func scriptErrorsBecomeToolErrors() {
+        func make(_ text: String, _ number: Int) -> ToolError {
+            NotesScripts.scriptError(ToolError(.internalError, "9:9: execution error: \(text) (\(number))\n"))
+        }
+        let missing = make("The note has no attachment named 'x'.", 1001)
+        #expect(missing.code == .notFound && missing.fix?.contains("get_note") == true)
+        #expect(make("No note with id 'x'.", 1001).fix?.contains("search_notes") == true)
+        #expect(make("The note is locked.", 1002) == NotesScripts.lockedError())
+        #expect(make("More than one attachment is named 'a'.", 1004).code == .ambiguous)
+        let export = make("Notes could not save the attachment 'Link' (AppleEvent handler failed.).", 1006)
+        #expect(export.code == .invalidInput && export.fix?.contains("Drawings, scans, tables and links") == true)
+        #expect(export.message.hasSuffix("failed.)."))
+        let other = ToolError(.internalError, "odd (-1728)")
+        #expect(NotesScripts.scriptError(other) == other)
+    }
+
+    @Test func theAttachmentScriptTakesValuesOnlyThroughArgv() {
+        let script = NotesScripts.saveAttachment
+        #expect(script.contains("item 4 of argv") && script.contains("save att in (POSIX file (item 4 of argv))"))
+        #expect(script.contains("my failIfLocked(nt)"))
     }
 
     @Test func bodyIsCutAt100000Characters() {
@@ -175,7 +219,7 @@ import Testing
         #expect(same.count == 100_000 && cutSame == false)
         let (cut, truncated) = NotesScripts.limitBody(String(repeating: "é", count: 100_001))
         #expect(cut.count == 100_000 && truncated)
-        let fields = ["N1", "Big", "Notes", "iCloud", "", "", String(repeating: "x", count: 100_001), ""]
+        let fields = ["N1", "Big", "Notes", "iCloud", "", "", "", String(repeating: "x", count: 100_001), ""]
         let note = NotesScripts.parseNote(fields.joined(separator: fs), includeHTML: false)
         #expect(note?.body.count == 100_000 && note?.truncated == true)
     }

@@ -26,8 +26,8 @@ applesauce is one small native program, written in Swift. It lets an AI assistan
 |---|---|
 | calendar | `list_calendars`, `list_events`, `search_events`, `get_event`, `create_event`, `update_event`, `delete_event` |
 | reminders | `list_reminder_lists`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder` |
-| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `create_draft`, `send_mail`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
-| notes | `list_folders`, `search_notes`, `get_note`, `create_note`, `append_to_note`, `move_note`, `delete_note` |
+| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_mail`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
+| notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `move_note`, `delete_note` |
 | contacts | `search_contacts`, `get_contact` |
 | shortcuts | `list_shortcuts`, `run_shortcut` |
 | spotlight | `search_files` |
@@ -97,7 +97,7 @@ macOS keeps your data private. The first time a tool needs an app, macOS shows a
 | Calendars | calendar | Prompt on the first calendar tool. Full access, so events can be read and changed. |
 | Reminders | reminders | Prompt on the first reminders tool. |
 | Contacts | contacts | Prompt on the first contacts tool. |
-| Automation for Mail | mail | Prompt on the first mail tool. Mail must be running. |
+| Automation for Mail | mail | Prompt on the first mail tool. If Mail is not running, applesauce opens it hidden in the background and leaves it open. |
 | Automation for Notes | notes | Prompt on the first notes tool. Notes must be running. |
 | Full Disk Access | mail search | Optional. Gives fast search over all mail. |
 
@@ -126,7 +126,8 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 - Tools that only read are marked `readOnlyHint: true`.
 - `run_shortcut` runs a shortcut, and a shortcut can do anything on your Mac. Turn off the `shortcuts` module if you do not want that.
 - Every call has a time limit (30 seconds, and 120 seconds for a permission prompt).
-- Mail attachment content is never returned. Contact notes are never returned.
+- Attachments are saved only by `get_mail_attachment` and `get_note_attachment`. Both need `confirm: true` on every call, and `--read-only` hides them. A file is limited to 25 MB. It goes to `~/Library/Caches/applesauce/attachments` (private to your user) and is deleted after 24 hours.
+- Contact notes are never returned.
 
 ### What can be undone
 
@@ -141,12 +142,20 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 
 Without `confirm: true`, a gated call changes nothing and says why. Your assistant can still pass `confirm: true` by itself, so `--read-only` is the only hard block.
 
+### Attachments
+
+- `get_mail_attachment` and `get_note_attachment` save one attachment as a file and return its absolute path.
+- Images (JPEG, PNG, GIF, WebP) are also returned as an image. HEIC is converted to JPEG. An image above 5 MB is scaled down for the result. The saved file stays as it is.
+- PDF, plain text, RTF, DOC and DOCX files are also returned as text, cut at 100000 characters. A PDF without text (a scan) returns the path only. Other types return the path only.
+- Mail attachments that Mail has not downloaded cannot be saved. Notes cannot save drawings, scans, tables and links. The call then fails with an error.
+- `search_mail` and `flag_message` know the seven flag colors: red, orange, yellow, green, blue, purple and gray.
+
 ## Limits
 
 - macOS 14 or newer.
 - No paid Apple signing and no notarization. Permissions reset after an update (see above).
 - Locked notes are not read.
-- Mail and Notes must be running. Mail search with Full Disk Access is the one exception.
+- Notes must be running. Mail is different: when a Mail tool needs it, applesauce opens Mail hidden in the background and leaves it open.
 - The Intel slice is built but not tested on Intel hardware.
 
 ### Linux and Docker

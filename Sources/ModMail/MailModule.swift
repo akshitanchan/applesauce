@@ -620,31 +620,6 @@ public struct MailModule: Module {
 
     // MARK: attachments
 
-    /// Exactly one of 'name' and 'index'.
-    private func attachmentPick(_ args: Arguments) throws -> AttachmentPick {
-        let name = try args.string("name")
-        let index = try args.int("index")
-        switch (name, index) {
-        case (nil, nil):
-            throw ToolError(
-                .invalidInput, "Give 'name' or 'index' to say which attachment you want.",
-                fix: "Use a name or a number from get_message.")
-        case (.some, .some):
-            throw ToolError.invalidInput("Give 'name' or 'index', not both.")
-        case (let name?, nil):
-            guard !name.isEmpty, !name.contains("\0") else {
-                throw ToolError.invalidInput("'name' must not be empty and must not contain a NUL character.")
-            }
-            return .name(name)
-        case (nil, let index?):
-            guard index >= 1 else {
-                throw ToolError(
-                    .invalidInput, "'index' must be 1 or more.", fix: "The first attachment is number 1.")
-            }
-            return .index(index)
-        }
-    }
-
     static let confirmAttachmentError = ToolError(
         .invalidInput, "Saving an attachment needs the user's OK, and 'confirm' is not true. Nothing was saved.",
         fix:
@@ -653,7 +628,7 @@ public struct MailModule: Module {
 
     private func getAttachment(_ args: Arguments) async throws -> ToolOutput {
         let id = try requiredID(args)
-        let pick = try attachmentPick(args)
+        let pick = try AttachmentPick(args)
         let confirmed = try args.bool("confirm") == true
         let place = try location(args)
         guard confirmed else { throw Self.confirmAttachmentError }

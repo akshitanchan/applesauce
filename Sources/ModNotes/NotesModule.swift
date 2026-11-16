@@ -12,16 +12,24 @@ public struct NotesModule: Module {
     let store: any NotesStore
     let backendTimeout: Double
     let writeTimeout: Double
+    /// Where `get_note_attachment` saves files, and the largest file it saves.
+    let attachmentRoot: URL
+    let attachmentLimit: Int
 
     /// The real module, backed by AppleScript.
     public init() {
         self.init(store: AppleNotesStore())
     }
 
-    init(store: any NotesStore, backendTimeout: Double = 60, writeTimeout: Double = 30) {
+    init(
+        store: any NotesStore, backendTimeout: Double = 60, writeTimeout: Double = 30,
+        attachmentRoot: URL = AttachmentCache.defaultRoot, attachmentLimit: Int = AttachmentCache.maxBytes
+    ) {
         self.store = store
         self.backendTimeout = backendTimeout
         self.writeTimeout = writeTimeout
+        self.attachmentRoot = attachmentRoot
+        self.attachmentLimit = attachmentLimit
     }
 
     // MARK: tools
@@ -55,12 +63,28 @@ public struct NotesModule: Module {
             ToolSpec(
                 name: "get_note",
                 description:
-                    "Get one note: name, folder, account, dates and the plain text body (cut at 100000 characters). Locked notes are not read. Attachments are not returned.",
+                    "Get one note: name, folder, account, dates and the plain text body (cut at 100000 characters). Locked notes are not read. Attachments are listed (number, name, type) but their content is not returned. Use get_note_attachment for that.",
                 properties: [
                     "id": Self.idProperty,
                     "include_html": Self.property("boolean", "true to add the HTML body. Default false."),
                 ],
                 required: ["id"]),
+            ToolSpec(
+                name: "get_note_attachment",
+                description:
+                    "Save one attachment of a note as a file on this Mac and return its absolute path. Images (JPEG, PNG, GIF, WebP, HEIC) are also returned as an image. PDF, text, RTF, DOC and DOCX files are also returned as text (cut at 100000 characters). Other types return the path only. Files above 25 MB are refused. Notes cannot save drawings, scans, tables and links: the call then fails with an error. Locked notes are not read. The file is kept for 24 hours. Give the attachment by 'name' or 'index' from get_note. Needs 'confirm' true on every call. Ask the user first, because the file is copied to ~/Library/Caches/applesauce/attachments.",
+                properties: [
+                    "id": Self.idProperty,
+                    "name": Self.property(
+                        "string", "Attachment name from get_note. Give 'name' or 'index', not both."),
+                    "index": Self.property("integer", "Attachment number from get_note. The first is 1."),
+                    "confirm": Self.property(
+                        "boolean",
+                        "Must be true. Ask the user first: the call copies the attachment to this Mac."),
+                ],
+                required: ["id"],
+                // It writes a file to the Mac and can copy private content out of Notes, so `--read-only` hides it.
+                write: true),
             ToolSpec(
                 name: "create_note",
                 description:
@@ -104,6 +128,7 @@ public struct NotesModule: Module {
         case "list_folders": return try await listFolders(args)
         case "search_notes": return try await searchNotes(args)
         case "get_note": return try await getNote(args)
+        case "get_note_attachment": return try await getAttachment(args)
         case "create_note": return try await createNote(args)
         case "append_to_note": return try await appendToNote(args)
         case "move_note": return try await moveNote(args)
@@ -275,9 +300,49 @@ public struct NotesModule: Module {
         ]
         if let created = note.created { lines.append("Created: \(ISODate.string(created))") }
         if let modified = note.modified { lines.append("Modified: \(ISODate.string(modified))") }
+        if !note.attachments.isEmpty {
+            let list = note.attachments.map { "\($0.index). \($0.name)\($0.type.map { " (\($0))" } ?? "")" }
+            lines.append("Attachments: \(list.joined(separator: ", "))")
+        }
         lines += ["", note.body]
         if note.truncated { lines.append("\n(Body cut at \(NotesScripts.bodyLimit) characters.)") }
         return try ToolOutput(text: lines.joined(separator: "\n"), payload: note)
+    }
+
+    // MARK: attachments
+
+    static let confirmAttachmentError = ToolError(
+        .invalidInput, "Saving an attachment needs the user's OK, and 'confirm' is not true. Nothing was saved.",
+        fix:
+            "Ask the user whether applesauce may save this attachment on this Mac. If the user agrees, call again with 'confirm' true."
+    )
+
+    private func getAttachment(_ args: Arguments) async throws -> ToolOutput {
+        let id = try noteID(args)
+        let pick = try AttachmentPick(args)
+        let confirmed = try args.bool("confirm") == true
+        guard confirmed else { throw Self.confirmAttachmentError }
+
+        AttachmentCache.sweep(root: attachmentRoot)
+        let folder = try AttachmentCache.makeFolder(root: attachmentRoot)
+        let limit = attachmentLimit
+        do {
+            let saved = try await backend {
+                try await $0.saveAttachment(id: id, pick: pick, into: folder, limit: limit)
+            }
+            // The store checks the size. This is a second check of the file that it wrote.
+            guard saved.size <= limit else {
+                throw AttachmentCache.tooLarge(name: saved.name, bytes: saved.size, limit: limit)
+            }
+            return try await backend { _ in
+                try AttachmentOutput.make(
+                    file: saved.file, name: saved.name, size: saved.size, textLimit: NotesScripts.bodyLimit)
+            }
+        } catch {
+            // Nothing stays behind for a failed call.
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
     }
 
     // MARK: write tools

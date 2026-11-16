@@ -38,6 +38,21 @@ struct NotesSearchQuery: Sendable, Equatable {
     var limit: Int = 25
 }
 
+/// One attachment of a note, in the order that Notes lists them.
+struct NoteAttachment: Encodable, Sendable, Equatable {
+    /// The position in the note, starting at 1.
+    let index: Int
+    let name: String
+    /// The MIME type that goes with the file extension. Nil when the name has no known extension (a link, for example).
+    let type: String?
+
+    init(index: Int, name: String) {
+        self.index = index
+        self.name = name
+        self.type = AttachmentOutput.mimeType(forFileName: name)
+    }
+}
+
 struct NotesNote: Encodable, Sendable, Equatable {
     let id: String
     let name: String
@@ -51,6 +66,7 @@ struct NotesNote: Encodable, Sendable, Equatable {
     let truncated: Bool
     /// The HTML body. Only set when it was asked for.
     let html: String?
+    var attachments: [NoteAttachment] = []
 }
 
 /// A note after a write. For a move, `id` is the id that Notes reports after the move.
@@ -68,6 +84,11 @@ protocol NotesStore: Sendable {
     func search(_ query: NotesSearchQuery) async throws -> NotesSearchPage
     /// Throws `NOT_FOUND` for an unknown id, and `PERMISSION_DENIED` for a locked note.
     func note(id: String, includeHTML: Bool) async throws -> NotesNote
+    /// Saves one attachment of a note as a file in `folder` (the folder exists). Notes writes the file. It throws
+    /// `NOT_FOUND` for an unknown attachment, `PERMISSION_DENIED` for a locked note and `INVALID_INPUT` for an
+    /// attachment that Notes cannot save (drawings, scans, tables, links) or one above `limit` bytes.
+    func saveAttachment(id: String, pick: AttachmentPick, into folder: URL, limit: Int) async throws
+        -> SavedAttachment
     /// `folderId` and `account` are optional. Without both, Notes uses its default folder.
     func create(html: String, folderId: String?, account: String?) async throws -> NoteRef
     func append(id: String, html: String) async throws -> NoteRef

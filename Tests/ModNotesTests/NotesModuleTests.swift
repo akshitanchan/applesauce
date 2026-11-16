@@ -60,12 +60,12 @@ import Testing
         let notes = module(store())
         #expect(
             notes.tools.map(\.tool.name) == [
-                "list_folders", "search_notes", "get_note", "create_note", "append_to_note", "move_note",
-                "delete_note",
+                "list_folders", "search_notes", "get_note", "get_note_attachment", "create_note", "append_to_note",
+                "move_note", "delete_note",
             ])
         #expect(
             notes.tools.filter(\.isWrite).map(\.tool.name) == [
-                "create_note", "append_to_note", "move_note", "delete_note",
+                "get_note_attachment", "create_note", "append_to_note", "move_note", "delete_note",
             ])
         #expect(notes.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name) == ["delete_note"])
         #expect(notes.name == "notes")
