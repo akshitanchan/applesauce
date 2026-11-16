@@ -394,11 +394,15 @@ enum MailScripts {
             end run
             """
 
-    /// argv: mode (`draft` or `send`), subject, body, number of to, cc, bcc addresses, sender address or `none`,
-    /// then the addresses. The sender address picks the account that sends.
+    /// argv: mode (`draft` or `send`), subject, body, number of to, cc, bcc addresses, number of attachments,
+    /// sender address or `none`, then the addresses, then the attachment file paths (real POSIX paths).
+    /// The sender address picks the account that sends.
     /// The message is created without a window, and `send` leaves no window open.
     /// `save` puts it in Drafts without a visible window. Mail keeps the hidden message object until it quits,
     /// and neither `close` nor `delete` removes it, so the script leaves it.
+    /// A file is attached with `make new attachment ... at after the last paragraph` of the content (Mail's
+    /// dictionary: `attachment` is an element of `rich text`, and its `file name` is a file). With attachments,
+    /// the body gets a line break at its end, so the files go on their own line.
     static let compose =
         prelude + """
 
@@ -408,11 +412,14 @@ enum MailScripts {
                 set nTo to (item 4 of argv) as integer
                 set nCc to (item 5 of argv) as integer
                 set nBcc to (item 6 of argv) as integer
+                set nFiles to (item 7 of argv) as integer
+                set bodyText to item 3 of argv
+                if nFiles > 0 then set bodyText to bodyText & return
                 tell application "Mail"
-                    set msg to make new outgoing message with properties {subject:(item 2 of argv), content:(item 3 of argv), visible:false}
-                    if (item 7 of argv) is not "\(none)" then set sender of msg to (item 7 of argv)
+                    set msg to make new outgoing message with properties {subject:(item 2 of argv), content:bodyText, visible:false}
+                    if (item 8 of argv) is not "\(none)" then set sender of msg to (item 8 of argv)
                     tell msg
-                        set pos to 8
+                        set pos to 9
                         repeat with i from 1 to nTo
                             make new to recipient at end of to recipients with properties {address:(item pos of argv)}
                             set pos to pos + 1
@@ -426,6 +433,12 @@ enum MailScripts {
                             set pos to pos + 1
                         end repeat
                     end tell
+                    repeat with i from 1 to nFiles
+                        tell content of msg
+                            make new attachment with properties {file name:(POSIX file (item pos of argv))} at after the last paragraph
+                        end tell
+                        set pos to pos + 1
+                    end repeat
                     if mode is "send" then
                         send msg
                     else
@@ -599,8 +612,8 @@ enum MailScripts {
     static func composeArguments(_ mail: OutgoingMail, send: Bool) -> [String] {
         [
             send ? "send" : "draft", mail.subject, mail.body, String(mail.to.count), String(mail.cc.count),
-            String(mail.bcc.count), mail.from ?? none,
-        ] + mail.to + mail.cc + mail.bcc
+            String(mail.bcc.count), String(mail.attachments.count), mail.from ?? none,
+        ] + mail.to + mail.cc + mail.bcc + mail.attachments
     }
 
     static func replyArguments(ref: MessageRef, body: String, replyAll: Bool, send: Bool) -> [String] {

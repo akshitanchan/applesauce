@@ -12,7 +12,16 @@ import Testing
         let evil = "x\" & (do shell script \"rm -rf ~\") & \"\n'; end tell"
         let mail = OutgoingMail(to: [evil], cc: [], bcc: ["b@c.d"], subject: evil, body: evil)
         let args = MailScripts.composeArguments(mail, send: false)
-        #expect(args == ["draft", evil, evil, "1", "0", "1", MailScripts.none, evil, "b@c.d"])
+        #expect(args == ["draft", evil, evil, "1", "0", "1", "0", MailScripts.none, evil, "b@c.d"])
+        let withFile = OutgoingMail(to: ["a@b.c"], cc: [], bcc: [], subject: "s", body: "b", attachments: [evil])
+        #expect(
+            MailScripts.composeArguments(withFile, send: true) == [
+                "send", "s", "b", "1", "0", "0", "1", MailScripts.none, "a@b.c", evil,
+            ])
+        // A file path is only ever read from argv, and the script attaches it as a POSIX file.
+        #expect(
+            MailScripts.compose.contains(
+                "make new attachment with properties {file name:(POSIX file (item pos of argv))}"))
         #expect(MailScripts.compose.contains("rm -rf") == false)
         #expect(MailScripts.composeArguments(mail, send: true).first == "send")
 

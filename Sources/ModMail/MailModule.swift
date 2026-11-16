@@ -85,6 +85,12 @@ public struct MailModule: Module {
     private static let confirmNote =
         "Without 'confirm' true nothing is sent: the message is saved as a draft."
 
+    private static let attachmentsProperty: Value = [
+        "type": "array", "items": ["type": "string"],
+        "description":
+            "Absolute paths of files to attach. At most \(OutgoingFiles.maxCount) files, 25 MB for each file and 25 MB in all. Folders, app bundles and files in secret folders (~/.ssh, ~/Library/Keychains and similar) are refused.",
+    ]
+
     public var tools: [ToolSpec] { Self.toolSpecs }
 
     public static var toolSpecs: [ToolSpec] {
@@ -153,26 +159,44 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "create_draft",
                 description:
-                    "Save a plain text draft in Mail. Nothing is sent. \(Self.fromNote) \(Self.openNote)",
+                    "Save a plain text draft in Mail, with files attached when 'attachments' is given. Nothing is sent. \(Self.fromNote) \(Self.openNote)",
                 properties: [
                     "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
                     "from": Self.fromProperty,
                     "subject": Self.property("string", "Subject."),
                     "body": Self.property("string", "Plain text body."),
+                    "attachments": Self.attachmentsProperty,
                 ],
                 required: ["subject", "body"], write: true),
             ToolSpec(
                 name: "send_mail",
                 description:
-                    "Send a plain text email. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone. On Gmail accounts, Mail may leave a copy in Drafts.",
+                    "Send a plain text email, with files attached when 'attachments' is given. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone. On Gmail accounts, Mail may leave a copy in Drafts.",
                 properties: [
                     "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
                     "from": Self.fromProperty,
                     "subject": Self.property("string", "Subject."),
                     "body": Self.property("string", "Plain text body."),
+                    "attachments": Self.attachmentsProperty,
                     "confirm": Self.property("boolean", "Must be true to send."),
                 ],
                 required: ["to", "subject", "body"], destructive: true),
+            ToolSpec(
+                name: "forward_message",
+                description:
+                    "Forward a message as plain text. The new message has the subject 'Fwd: ...', your 'body' (if any), a header block (From, Date, Subject, To) and the original text. The attachments of the original are included unless 'include_attachments' is false. An attachment that cannot be fetched or is above 25 MB is skipped, and the result lists it. 'attachments' adds more files. Forwarded attachments are copied to ~/Library/Caches/applesauce/attachments and kept for 24 hours. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone.",
+                properties: [
+                    "id": Self.property("string", "Message id from search_mail."),
+                    "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
+                    "from": Self.fromProperty,
+                    "body": Self.property("string", "Plain text that goes above the forwarded message."),
+                    "include_attachments": Self.property(
+                        "boolean", "true to forward the attachments of the original. Default true."),
+                    "attachments": Self.attachmentsProperty,
+                    "confirm": Self.property("boolean", "Must be true to send."),
+                    "in_mailbox": Self.inMailbox, "in_account": Self.inAccount,
+                ],
+                required: ["id", "to"], destructive: true),
             ToolSpec(
                 name: "reply",
                 description:
@@ -243,6 +267,7 @@ public struct MailModule: Module {
         case "create_draft": return try await composeMail(args, tool: tool)
         case "send_mail": return try await composeMail(args, tool: tool)
         case "reply": return try await replyToMessage(args)
+        case "forward_message": return try await forwardMessage(args)
         case "move_message": return try await changeMessages(args, tool: tool)
         case "flag_message": return try await changeMessages(args, tool: tool)
         case "mark_read": return try await changeMessages(args, tool: tool)
@@ -306,6 +331,10 @@ public struct MailModule: Module {
         let draftSaved: Bool?
         /// True when nothing changed because the call needs 'confirm' true.
         var confirmRequired: Bool? = nil
+        /// File names that the message carries. Only for a message with attachments.
+        var attached: [String]? = nil
+        /// Attachments of a forwarded message that were left out, each with the reason.
+        var skipped: [String]? = nil
     }
 
     static func describe(_ item: MessageSummary) -> String {
@@ -551,7 +580,12 @@ public struct MailModule: Module {
     private func getMessage(_ args: Arguments) async throws -> ToolOutput {
         let id = try requiredID(args)
         let place = try location(args)
+        let final = try await loadMessage(id: id, place: place)
+        return try ToolOutput(text: Self.messageText(final), payload: final)
+    }
 
+    /// One message with its body: from the index and the message file, or through Mail without Full Disk Access.
+    private func loadMessage(id: String, place: (mailbox: String, account: String)?) async throws -> MailMessage {
         var message: MailMessage?
         var reason: ToolError?
         if store.hasFullDiskAccess() {
@@ -578,7 +612,7 @@ public struct MailModule: Module {
         guard let final = message else {
             throw ToolError(.internalError, "No message was read.", fix: "Report this error.")
         }
-        return try ToolOutput(text: Self.messageText(final), payload: final)
+        return final
     }
 
     /// The file was not on disk. Ask Mail for the body, which also makes Mail download it. It never fails the call.
@@ -673,12 +707,26 @@ public struct MailModule: Module {
         return body
     }
 
+    /// An optional body. Empty text is the same as none.
+    private func optionalBody(_ args: Arguments) throws -> String? {
+        guard let body = try args.string("body"), !body.isEmpty else { return nil }
+        guard body.utf8.count <= Self.bodyInputLimit else {
+            throw ToolError(
+                .invalidInput,
+                "'body' is too long (\(body.utf8.count) bytes). The limit is \(Self.bodyInputLimit) bytes.",
+                fix: "Send a shorter text.")
+        }
+        return body
+    }
+
     private func composeMail(_ args: Arguments, tool: String) async throws -> ToolOutput {
         let sending = tool == "send_mail"
         var mail = OutgoingMail(
             to: try addresses(args, "to", required: sending), cc: try addresses(args, "cc"),
             bcc: try addresses(args, "bcc"), subject: try args.requiredString("subject"),
             body: try requiredBody(args))
+        let files = try attachmentFiles(args)
+        mail.attachments = files.map(\.path)
         let requestedSender = try trimmed(args, "from")
         let confirm = sending ? try args.bool("confirm") : nil
         let confirmed = confirm == true
@@ -689,20 +737,141 @@ public struct MailModule: Module {
         try await backend(seconds: writeTimeout, onTimeout: confirmed ? Self.sendTimeout : nil) {
             try await $0.compose(outgoing, send: confirmed)
         }
+        let names = files.map(\.name)
+        let attachedText = Self.attachedText(names)
+        let attached = names.isEmpty ? nil : names
         if confirmed {
             return try ToolOutput(
-                text: "Sent from \(sender) to \(mail.to.joined(separator: ", ")).",
-                payload: ActionResult(action: "send", count: nil, ids: nil, sent: true, draftSaved: false))
+                text: "Sent from \(sender) to \(mail.to.joined(separator: ", ")).\(attachedText)",
+                payload: ActionResult(
+                    action: "send", count: nil, ids: nil, sent: true, draftSaved: false, attached: attached))
         }
         let text =
             sending
-            ? "Not sent: 'confirm' was not true. The message is saved as a draft in Mail. Call send_mail again with 'confirm' true to send."
-            : "Draft saved in Mail, from \(sender). Nothing was sent."
+            ? "Not sent: 'confirm' was not true. The message is saved as a draft in Mail. Call send_mail again with 'confirm' true to send.\(attachedText)"
+            : "Draft saved in Mail, from \(sender). Nothing was sent.\(attachedText)"
         return try ToolOutput(
             text: text,
             payload: ActionResult(
                 action: sending ? "draft" : "create_draft", count: nil, ids: nil, sent: sending ? false : nil,
-                draftSaved: true))
+                draftSaved: true, attached: attached))
+    }
+
+    /// ` Attached: a.pdf, b.png.`, or nothing when no file is attached.
+    private static func attachedText(_ names: [String]) -> String {
+        names.isEmpty ? "" : " Attached: \(names.joined(separator: ", "))."
+    }
+
+    /// The optional 'attachments' argument, checked: every file exists, is a regular file, is readable, and the
+    /// count and the sizes are inside the limits. Nothing is sent to Mail before this passes.
+    private func attachmentFiles(_ args: Arguments) throws -> [OutgoingFile] {
+        guard let paths = try args.stringArray("attachments") else { return [] }
+        return try OutgoingFiles.check(paths, limit: attachmentLimit)
+    }
+
+    // MARK: forward
+
+    /// "Fwd: " and the original subject. A subject that starts with "Fwd:" or "Fw:" keeps its prefix.
+    static func forwardSubject(_ original: String) -> String {
+        let subject = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = subject.lowercased()
+        if lower.hasPrefix("fwd:") || lower.hasPrefix("fw:") { return subject }
+        return subject.isEmpty ? "Fwd:" : "Fwd: \(subject)"
+    }
+
+    /// Your text, then the header block of the original (From, Date, Subject, To, and Cc when there is one),
+    /// then the original plain text.
+    static func forwardBody(intro: String?, original: MailMessage, text: String) -> String {
+        var lines: [String] = []
+        if let intro, !intro.isEmpty { lines += [intro, ""] }
+        lines += ["Begin forwarded message:", "", "From: \(original.from)"]
+        if let date = original.date { lines.append("Date: \(ISODate.string(date))") }
+        lines.append("Subject: \(original.subject.isEmpty ? "(no subject)" : original.subject)")
+        if !original.to.isEmpty { lines.append("To: \(original.to.joined(separator: ", "))") }
+        if !original.cc.isEmpty { lines.append("Cc: \(original.cc.joined(separator: ", "))") }
+        lines += ["", text]
+        if original.truncated {
+            lines += ["", "(The original text was cut at \(MailScripts.bodyLimit) characters.)"]
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The attachments of the original, saved as files. An attachment that cannot be saved is skipped and named.
+    /// Each file gets its own folder, because two attachments can have the same name.
+    private func saveOriginalAttachments(of original: MailMessage) async throws -> (
+        files: [SavedAttachment], skipped: [String]
+    ) {
+        guard !original.attachments.isEmpty else { return ([], []) }
+        AttachmentCache.sweep(root: attachmentRoot)
+        let ref = MessageRef(id: original.id, accountId: original.accountId, mailbox: original.mailbox)
+        let limit = attachmentLimit
+        var files: [SavedAttachment] = []
+        var skipped: [String] = []
+        for (offset, attachment) in original.attachments.enumerated() {
+            let folder = try AttachmentCache.makeFolder(root: attachmentRoot)
+            do {
+                let saved = try await backend(seconds: writeTimeout) {
+                    try await $0.saveAttachment(ref, pick: .index(offset + 1), into: folder, limit: limit)
+                }
+                guard saved.size <= limit else {
+                    throw AttachmentCache.tooLarge(name: saved.name, bytes: saved.size, limit: limit)
+                }
+                files.append(saved)
+            } catch let error as ToolError {
+                try? FileManager.default.removeItem(at: folder)
+                skipped.append("\(attachment.name) (\(error.message))")
+            }
+        }
+        return (files, skipped)
+    }
+
+    private func forwardMessage(_ args: Arguments) async throws -> ToolOutput {
+        let id = try requiredID(args)
+        let to = try addresses(args, "to", required: true)
+        let cc = try addresses(args, "cc")
+        let bcc = try addresses(args, "bcc")
+        let intro = try optionalBody(args)
+        let includeAttachments = try args.bool("include_attachments") ?? true
+        let extra = try attachmentFiles(args)
+        let requestedSender = try trimmed(args, "from")
+        let confirmed = (try args.bool("confirm")) == true
+        let place = try location(args)
+        try await requireRunning()
+        // The sender check comes first: an unclear sender stops the call before any file is saved.
+        let sender = try await senderAddress(requestedSender)
+        let original = try await loadMessage(id: id, place: place)
+        guard let text = original.body else {
+            throw ToolError(
+                .notFound,
+                "The text of message \(id) is not available (\(original.note ?? "Mail has not downloaded it")), so it cannot be forwarded.",
+                fix: "Open the message in Mail so that it downloads, then try again.")
+        }
+        let body = Self.forwardBody(intro: intro, original: original, text: text)
+        guard body.utf8.count <= Self.bodyInputLimit else {
+            throw ToolError(
+                .invalidInput,
+                "The forwarded text is too long (\(body.utf8.count) bytes). The limit is \(Self.bodyInputLimit) bytes.",
+                fix: "Use a shorter 'body'.")
+        }
+        let saved = includeAttachments ? try await saveOriginalAttachments(of: original) : (files: [], skipped: [])
+        let mail = OutgoingMail(
+            to: to, cc: cc, bcc: bcc, subject: Self.forwardSubject(original.subject), body: body, from: sender,
+            attachments: saved.files.map(\.file.path) + extra.map(\.path))
+        try await backend(seconds: writeTimeout, onTimeout: confirmed ? Self.sendTimeout : nil) {
+            try await $0.compose(mail, send: confirmed)
+        }
+        let names = saved.files.map(\.name) + extra.map(\.name)
+        var summary =
+            confirmed
+            ? "Forwarded message \(id) from \(sender) to \(to.joined(separator: ", "))."
+            : "Not sent: 'confirm' was not true. The forward is saved as a draft in Mail. Call forward_message again with 'confirm' true to send."
+        summary += Self.attachedText(names)
+        if !saved.skipped.isEmpty { summary += " Skipped: \(saved.skipped.joined(separator: "; "))." }
+        return try ToolOutput(
+            text: summary,
+            payload: ActionResult(
+                action: "forward", count: nil, ids: [id], sent: confirmed, draftSaved: !confirmed,
+                attached: names.isEmpty ? nil : names, skipped: saved.skipped.isEmpty ? nil : saved.skipped))
     }
 
     /// The address a new message comes from. One account with an address: that one, unasked.

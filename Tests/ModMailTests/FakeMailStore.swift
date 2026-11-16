@@ -40,6 +40,10 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         var attachmentName = "notes.txt"
         var attachmentError: ToolError?
         var savedAttachment: (ref: MessageRef, pick: AttachmentPick, limit: Int)?
+        /// Per attachment number (from 1): a name other than `attachmentName`, or an error for `saveAttachment`.
+        var attachmentNames: [Int: String] = [:]
+        var attachmentFailures: [Int: ToolError] = [:]
+        var savedPicks: [AttachmentPick] = []
     }
 
     private let lock = NSLock()
@@ -137,9 +141,14 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         write {
             $0.calls.append("saveAttachment")
             $0.savedAttachment = (ref, pick, limit)
+            $0.savedPicks.append(pick)
         }
         if let error = read(\.attachmentError) { throw error }
-        let (data, name) = (read(\.attachmentData), read(\.attachmentName))
+        var number = 0
+        if case .index(let value) = pick { number = value }
+        if let error = read({ $0.attachmentFailures[number] }) { throw error }
+        let data = read(\.attachmentData)
+        let name = read { $0.attachmentNames[number] ?? $0.attachmentName }
         let file = try AttachmentCache.write(data, name: name, into: folder)
         return SavedAttachment(file: file, name: name, size: data.count)
     }
