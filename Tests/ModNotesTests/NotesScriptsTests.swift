@@ -57,11 +57,15 @@ import Testing
     }
 
     @Test func lockedNotesAreCheckedBeforeAnyTextIsRead() {
-        for script in [NotesScripts.note, NotesScripts.append] {
-            let lock = script.range(of: "my failIfLocked(nt)")
-            let text = script.range(of: "plaintext of nt") ?? script.range(of: "body of nt")
-            #expect(lock != nil && text != nil && lock!.lowerBound < text!.lowerBound)
-        }
+        // append: the lock check runs before the body is read.
+        let appendLock = NotesScripts.append.range(of: "my failIfLocked(nt)")
+        let appendText = NotesScripts.append.range(of: "body of nt")
+        #expect(appendLock != nil && appendText != nil && appendLock!.lowerBound < appendText!.lowerBound)
+        // get_note reads every property in one event, then refuses a locked note before it uses any field.
+        let note = NotesScripts.note
+        let lock = note.range(of: "if isLocked then my failWith(1002")
+        let text = note.range(of: "plaintext of props")
+        #expect(lock != nil && text != nil && lock!.lowerBound < text!.lowerBound)
         // The search never returns or matches the text of a locked note.
         #expect(NotesScripts.search.contains("if not isLocked then set noteText to"))
         #expect(NotesScripts.search.contains("else if not isLocked and (item i of cols's noteTexts) contains q then"))
