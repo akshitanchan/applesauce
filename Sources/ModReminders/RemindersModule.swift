@@ -47,6 +47,16 @@ public struct RemindersModule: Module {
                 name: "list_reminder_lists",
                 description: "List all reminder lists with their id, source and whether they allow changes."),
             ToolSpec(
+                name: "create_reminder_list",
+                description:
+                    "Create a reminder list. It fails when a list with the same name (any case) already exists. Without 'source' the list goes into the account of the default list.",
+                properties: [
+                    "name": Self.property("string", "Name of the new list."),
+                    "source": Self.property(
+                        "string", "Account name or id, for example iCloud. Default: the account of the default list."),
+                ],
+                required: ["name"], write: true),
+            ToolSpec(
                 name: "list_reminders",
                 description:
                     "List reminders, sorted by due date, from one list or all. By default only incomplete ones. Dates are \(Self.dateNote). A date-only 'due_end' includes that whole day. Reminders without a due date are left out when a due range is given.",
@@ -77,7 +87,7 @@ public struct RemindersModule: Module {
             ToolSpec(
                 name: "create_reminder",
                 description:
-                    "Create a reminder. The due date is \(Self.dateNote). A date-only 'due' has a day but no time.",
+                    "Create a reminder. The due date is \(Self.dateNote). A date-only 'due' has a day but no time. Subtasks and tags are not supported, because EventKit has no public API for them.",
                 properties: [
                     "title": Self.property("string", "Reminder title."),
                     "list": Self.property("string", "List name or id. Default: the default list."),
@@ -90,7 +100,7 @@ public struct RemindersModule: Module {
             ToolSpec(
                 name: "update_reminder",
                 description:
-                    "Change fields of a reminder. Send only the fields to change. An empty string clears 'due', 'notes' or 'url'. The due date is \(Self.dateNote).",
+                    "Change fields of a reminder. Send only the fields to change. An empty string clears 'due', 'notes' or 'url'. 'list' moves the reminder to another list. The due date is \(Self.dateNote).",
                 properties: [
                     "id": Self.property("string", Self.idNote),
                     "title": Self.property("string", "New title."),
@@ -98,6 +108,7 @@ public struct RemindersModule: Module {
                     "notes": Self.property("string", "New notes. Empty string clears them."),
                     "priority": Self.priorityProperty,
                     "url": Self.property("string", "New URL. Empty string clears it."),
+                    "list": Self.property("string", "Move the reminder to this list (name or id). Names ignore case."),
                 ],
                 required: ["id"], write: true, idempotent: true),
             ToolSpec(
@@ -122,6 +133,7 @@ public struct RemindersModule: Module {
     public func call(_ tool: String, _ args: Arguments) async throws -> ToolOutput {
         switch tool {
         case "list_reminder_lists": return try await listLists()
+        case "create_reminder_list": return try await createReminderList(args)
         case "list_reminders": return try await listReminders(args)
         case "search_reminders": return try await searchReminders(args)
         case "get_reminder": return try await getReminder(args)
@@ -314,6 +326,31 @@ public struct RemindersModule: Module {
         return try ToolOutput(text: "Created reminder: " + Self.describe(reminder), payload: reminder)
     }
 
+    private func createReminderList(_ args: Arguments) async throws -> ToolOutput {
+        let name = try args.requiredString("name").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw ToolError.invalidInput("'name' is required.") }
+        let sourceName = try args.string("source")
+
+        try await access()
+        let existing = try await backend { try await $0.lists() }
+        if let same = existing.first(where: { $0.title.caseInsensitiveCompare(name) == .orderedSame }) {
+            throw ToolError(
+                .invalidInput, "A reminder list named '\(same.title)' already exists (id: \(same.id)).",
+                fix: "Use the existing list, or choose another name.")
+        }
+        var sourceId: String?
+        if let sourceName {
+            let sources = try await backend { try await $0.sources() }
+            sourceId = try resolveByIdOrName(sourceName, kind: "reminder account", in: sources).id
+        }
+        let account = sourceId
+        let created = try await backend { try await $0.createList(name: name, sourceId: account) }
+        return try ToolOutput(
+            text:
+                "Created reminder list: \(created.title)\(created.source.map { " | \($0)" } ?? "") | id: \(created.id)",
+            payload: created)
+    }
+
     private func updateReminder(_ args: Arguments) async throws -> ToolOutput {
         let id = try args.requiredString("id")
         let title = try args.string("title")
@@ -326,17 +363,20 @@ public struct RemindersModule: Module {
                 due = .set(ReminderDue(date: parsed.date, dateOnly: parsed.dateOnly))
             }
         }
-        let patch = ReminderPatch(
+        var patch = ReminderPatch(
             title: title, due: due, notes: try args.string("notes"), priority: try priority(args),
             url: try args.url("url"))
-        guard patch != ReminderPatch() else {
+        let listName = try args.string("list")
+        guard patch != ReminderPatch() || listName != nil else {
             throw ToolError.invalidInput("Give at least one field to change.")
         }
 
         try await access()
         let current = try await existing(id)
         if current.readOnly { throw Self.readOnlyList(current.list) }
-        let reminder = try await backend { try await $0.update(id: id, patch) }
+        patch.listId = try await list(named: listName, writable: true)?.id
+        let changes = patch
+        let reminder = try await backend { try await $0.update(id: id, changes) }
         return try ToolOutput(text: "Updated reminder: " + Self.describe(reminder), payload: reminder)
     }
 

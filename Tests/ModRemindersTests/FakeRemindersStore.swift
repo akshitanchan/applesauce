@@ -13,6 +13,8 @@ final class FakeRemindersStore: RemindersStore, @unchecked Sendable {
         var requestDelay: Double = 0
         var reminderDelay: Double = 0
         var lists: [ReminderListInfo] = []
+        var sources: [ReminderSourceInfo] = []
+        var createdList: (name: String, sourceId: String?)?
         var reminders: [ReminderInfo] = []
         var calls: [String] = []
         var listQuery: [String]?
@@ -55,6 +57,19 @@ final class FakeRemindersStore: RemindersStore, @unchecked Sendable {
     func lists() async throws -> [ReminderListInfo] {
         write { $0.calls.append("lists") }
         return read(\.lists)
+    }
+
+    func sources() async throws -> [ReminderSourceInfo] {
+        write { $0.calls.append("sources") }
+        return read(\.sources)
+    }
+
+    func createList(name: String, sourceId: String?) async throws -> ReminderListInfo {
+        write {
+            $0.calls.append("createList")
+            $0.createdList = (name, sourceId)
+        }
+        return ReminderListInfo(id: "NEWLIST", title: name, source: "iCloud", writable: true)
     }
 
     func reminders(listIds: [String]) async throws -> [ReminderInfo] {

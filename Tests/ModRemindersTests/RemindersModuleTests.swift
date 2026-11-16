@@ -48,11 +48,14 @@ import Testing
         let tools = module(store()).tools
         #expect(
             tools.map(\.tool.name) == [
-                "list_reminder_lists", "list_reminders", "search_reminders", "get_reminder", "create_reminder",
-                "update_reminder", "complete_reminder", "delete_reminder",
+                "list_reminder_lists", "create_reminder_list", "list_reminders", "search_reminders", "get_reminder",
+                "create_reminder", "update_reminder", "complete_reminder", "delete_reminder",
             ])
         let writes = tools.filter(\.isWrite).map(\.tool.name)
-        #expect(writes == ["create_reminder", "update_reminder", "complete_reminder", "delete_reminder"])
+        #expect(
+            writes == [
+                "create_reminder_list", "create_reminder", "update_reminder", "complete_reminder", "delete_reminder",
+            ])
         #expect(tools.last?.tool.annotations.destructiveHint == true)
         #expect(tools.allSatisfy { !$0.tool.description!.isEmpty })
     }

@@ -30,6 +30,36 @@ actor EventKitRemindersStore: RemindersStore {
         store.calendars(for: .reminder).map(Self.info)
     }
 
+    func sources() async throws -> [ReminderSourceInfo] {
+        store.sources.filter { $0.sourceType != .subscribed && $0.sourceType != .birthdays }
+            .map { ReminderSourceInfo(id: $0.sourceIdentifier, title: $0.title) }
+    }
+
+    func createList(name: String, sourceId: String?) async throws -> ReminderListInfo {
+        let list = EKCalendar(for: .reminder, eventStore: store)
+        list.title = name
+        if let sourceId {
+            list.source = store.sources.first { $0.sourceIdentifier == sourceId }
+        } else {
+            list.source =
+                store.defaultCalendarForNewReminders()?.source
+                ?? store.sources.first { $0.sourceType == .local }
+        }
+        guard list.source != nil else {
+            throw ToolError(
+                .notFound, "No account is available for a new reminder list.",
+                fix: "Set a default list in the Reminders app, or pass 'source'.")
+        }
+        do {
+            try store.saveCalendar(list, commit: true)
+        } catch {
+            throw ToolError(
+                .internalError, "Reminders could not create the list: \(error.localizedDescription)",
+                fix: "Check that the account allows new lists, or pass another 'source'.")
+        }
+        return Self.info(list)
+    }
+
     func reminders(listIds: [String]) async throws -> [ReminderInfo] {
         var selected: [EKCalendar]?
         if !listIds.isEmpty {
@@ -81,6 +111,13 @@ actor EventKitRemindersStore: RemindersStore {
         if let notes = patch.notes { reminder.notes = notes.isEmpty ? nil : notes }
         if let priority = patch.priority { reminder.priority = Self.number(priority) }
         if let url = patch.url { reminder.url = url.isEmpty ? nil : URL(string: url) }
+        if let listId = patch.listId {
+            guard let list = store.calendar(withIdentifier: listId) else {
+                throw ToolError(
+                    .notFound, "No reminder list has the id '\(listId)'.", fix: "Use a list from list_reminder_lists.")
+            }
+            reminder.calendar = list
+        }
         try save(reminder)
         return Self.info(reminder)
     }

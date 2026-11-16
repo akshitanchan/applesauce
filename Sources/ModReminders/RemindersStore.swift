@@ -8,6 +8,12 @@ struct ReminderListInfo: Encodable, Sendable, Equatable, Identified {
     let writable: Bool
 }
 
+/// An account that can hold reminder lists, for example iCloud.
+struct ReminderSourceInfo: Sendable, Equatable, Identified {
+    let id: String
+    let title: String
+}
+
 enum ReminderPriority: String, Encodable, Sendable, CaseIterable {
     case none, low, medium, high
 }
@@ -57,6 +63,8 @@ struct ReminderPatch: Sendable, Equatable {
     var notes: String?
     var priority: ReminderPriority?
     var url: String?
+    /// Moves the reminder to this list.
+    var listId: String?
 }
 
 /// The only way the reminders module reaches the reminder data.
@@ -66,6 +74,10 @@ protocol RemindersStore: Sendable {
     func accessState() -> PermissionState
     func requestAccess() async throws -> Bool
     func lists() async throws -> [ReminderListInfo]
+    /// Accounts that can hold a new list.
+    func sources() async throws -> [ReminderSourceInfo]
+    /// Makes a list in the account `sourceId`. Nil means the account of the default list.
+    func createList(name: String, sourceId: String?) async throws -> ReminderListInfo
     /// All reminders, complete and incomplete. An empty `listIds` means all lists. The module filters them.
     func reminders(listIds: [String]) async throws -> [ReminderInfo]
     func reminder(id: String) async throws -> ReminderInfo?
