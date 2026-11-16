@@ -101,15 +101,15 @@ macOS keeps your data private. The first time a tool needs an app, macOS shows a
 | Automation for Notes | notes | Prompt on the first notes tool. Notes must be running. |
 | Full Disk Access | mail search | Optional. Gives fast search over all mail. |
 
-Spotlight, Shortcuts, the clipboard, `notify` and `open` need no permission of their own.
+Spotlight, Shortcuts, the clipboard and `open` need no permission of their own. The first `notify` asks to show notifications. Until you allow it, notifications still appear, with the Script Editor icon. After that they show the applesauce icon.
 
 ### Full Disk Access for fast Mail search
 
 Without it, `search_mail` still works. It is slower, needs a mailbox, and looks at a date range only. With it, applesauce reads the Mail index directly, read-only.
 
-1. Ask your assistant to run the `doctor` tool, or run `npx -y applesauce doctor` in a terminal. Copy the `binary:` path.
+1. Ask your assistant to run the `doctor` tool, or run `npx -y applesauce doctor` in a terminal. Copy the `binary:` path, up to and including `applesauce.app`.
 2. Open System Settings, Privacy & Security, Full Disk Access.
-3. Click `+`. Press Cmd+Shift+G and paste the path. Select the binary and click Open.
+3. Click `+`. Press Cmd+Shift+G and paste the path. Select `applesauce.app` and click Open.
 4. Restart your AI app.
 
 ### Permissions reset after an update

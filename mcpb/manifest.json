@@ -49,9 +49,9 @@
   },
   "server": {
     "type": "binary",
-    "entry_point": "server/applesauce",
+    "entry_point": "server/applesauce.app/Contents/MacOS/applesauce",
     "mcp_config": {
-      "command": "${__dirname}/server/applesauce",
+      "command": "${__dirname}/server/applesauce.app/Contents/MacOS/applesauce",
       "args": [
         "serve"
       ],

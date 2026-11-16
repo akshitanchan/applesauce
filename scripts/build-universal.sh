@@ -36,3 +36,4 @@ echo "$details" | grep -q "^Info.plist entries=" \
 codesign --verify --strict dist/applesauce
 
 echo "built dist/applesauce $(dist/applesauce --version)"
+scripts/build-app.sh

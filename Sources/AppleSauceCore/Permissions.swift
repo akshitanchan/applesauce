@@ -65,12 +65,14 @@ public enum Permission: String, CaseIterable, Sendable, Codable {
             return nil
         case .notDetermined:
             if self == .fullDiskAccess {
-                return "Open \(settings), click +, and add the applesauce binary. Then restart your AI app."
+                return
+                    "Open \(settings), click +, and add applesauce.app (the doctor tool shows its path). Then restart your AI app."
             }
             return "macOS asks the first time a \(neededBy.joined(separator: ", ")) tool runs. Click Allow."
         case .denied, .writeOnly, .limited:
             if self == .fullDiskAccess {
-                return "Open \(settings), click +, and add the applesauce binary. Then restart your AI app."
+                return
+                    "Open \(settings), click +, and add applesauce.app (the doctor tool shows its path). Then restart your AI app."
             }
             return "Open \(settings) and turn on applesauce. After an applesauce update, turn it off and on again."
         case .restricted:

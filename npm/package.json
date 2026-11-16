@@ -6,7 +6,7 @@
   "license": "MIT",
   "author": "Akshit Anchan",
   "bin": {
-    "applesauce": "bin/applesauce"
+    "applesauce": "applesauce.app/Contents/MacOS/applesauce"
   },
   "os": [
     "darwin"
@@ -19,7 +19,7 @@
     "node": ">=18"
   },
   "files": [
-    "bin/applesauce",
+    "applesauce.app",
     "README.md",
     "LICENSE"
   ],

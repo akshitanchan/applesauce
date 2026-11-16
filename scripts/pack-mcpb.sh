@@ -9,17 +9,16 @@ cd "$root"
 # Pinned: a newer CLI can change the manifest rules. Change it on purpose.
 mcpb_cli="@anthropic-ai/mcpb@2.1.2"
 
-[[ -x dist/applesauce ]] || { echo "pack-mcpb.sh: dist/applesauce is missing. Run scripts/build-universal.sh first." >&2; exit 1; }
+[[ -x dist/applesauce.app/Contents/MacOS/applesauce ]] || { echo "pack-mcpb.sh: dist/applesauce.app is missing. Run scripts/build-universal.sh first." >&2; exit 1; }
 scripts/version.sh --check >/dev/null
 version="$(scripts/version.sh)"
 
 rm -rf dist/mcpb
 mkdir -p dist/mcpb/server
 cp mcpb/manifest.json dist/mcpb/manifest.json
-cp dist/applesauce dist/mcpb/server/applesauce
+cp -R dist/applesauce.app dist/mcpb/server/applesauce.app
 cp LICENSE README.md dist/mcpb/
 cp assets/icon.png assets/icon-dark.png dist/mcpb/
-chmod 755 dist/mcpb/server/applesauce
 
 out="dist/applesauce-$version.mcpb"
 rm -f "$out"
@@ -30,8 +29,9 @@ npx --yes "$mcpb_cli" pack dist/mcpb "$out"
 check="$(mktemp -d)"
 trap 'rm -rf "$check"' EXIT
 unzip -q "$out" -d "$check"
-[[ -x "$check/server/applesauce" ]] || { echo "pack-mcpb.sh: server/applesauce is not executable in the bundle" >&2; exit 1; }
-cmp dist/applesauce "$check/server/applesauce" || { echo "pack-mcpb.sh: binary changed in the bundle" >&2; exit 1; }
-codesign --verify --strict "$check/server/applesauce"
+binary="$check/server/applesauce.app/Contents/MacOS/applesauce"
+[[ -x "$binary" ]] || { echo "pack-mcpb.sh: the app's binary is not executable in the bundle" >&2; exit 1; }
+cmp dist/applesauce.app/Contents/MacOS/applesauce "$binary" || { echo "pack-mcpb.sh: binary changed in the bundle" >&2; exit 1; }
+codesign --verify --strict --deep "$check/server/applesauce.app"
 unzip -Z "$out"
 echo "packed $out"
