@@ -7,6 +7,10 @@ import Foundation
 final class FakeMailStore: MailStore, @unchecked Sendable {
     struct State {
         var running = true
+        /// True when `ensureRunning` cannot start Mail.
+        var launchFails = false
+        /// How many times `ensureRunning` started Mail.
+        var launches = 0
         var fullDiskAccess = true
         var accounts: [MailAccount] = [
             MailAccount(id: "ACC1", name: "Work", emails: ["me@work.example"]),
@@ -53,6 +57,19 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
     }
 
     func isMailRunning() -> Bool { read(\.running) }
+
+    static let cannotStart = ToolError(
+        .appNotRunning, "applesauce opened Mail, but Mail did not answer within 20 seconds.",
+        fix: "Check that Mail is not stuck on a dialog, then try again.")
+
+    func ensureRunning() async throws {
+        if read(\.running) { return }
+        if read(\.launchFails) { throw Self.cannotStart }
+        write {
+            $0.running = true
+            $0.launches += 1
+        }
+    }
     func hasFullDiskAccess() -> Bool { read(\.fullDiskAccess) }
 
     func accounts() async throws -> [MailAccount] {

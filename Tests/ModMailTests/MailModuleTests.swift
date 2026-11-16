@@ -290,13 +290,23 @@ import Testing
             "get_message", ["id": "10", "in_mailbox": "INBOX", "in_account": "ACC1"], on: fake)
         #expect(fake.read(\.calls) == ["scriptedMessage"])
         #expect(output.text.contains("Subject: Hello"))
+        // Mail is closed: applesauce opens it, then reads the message.
         let closed = store {
             $0.fullDiskAccess = false
             $0.running = false
+            $0.scriptedMessage = Self.message
+        }
+        let reopened = try await run(
+            "get_message", ["id": "10", "in_mailbox": "INBOX", "in_account": "A"], on: closed)
+        #expect(closed.read(\.launches) == 1 && reopened.text.contains("Subject: Hello"))
+        let stuck = store {
+            $0.fullDiskAccess = false
+            $0.running = false
+            $0.launchFails = true
         }
         let notRunning = await failure(
-            "get_message", ["id": "10", "in_mailbox": "INBOX", "in_account": "A"], on: closed)
-        #expect(notRunning?.code == .appNotRunning && notRunning?.fix == "Open Mail, then try again.")
+            "get_message", ["id": "10", "in_mailbox": "INBOX", "in_account": "A"], on: stuck)
+        #expect(notRunning?.code == .appNotRunning && notRunning?.fix?.contains("try again") == true)
     }
 
     @Test func unknownIdIsNotFound() async {
@@ -411,22 +421,47 @@ import Testing
         #expect(fake.read(\.composed)?.mail.body.count == MailModule.bodyInputLimit)
     }
 
-    @Test func writesNeedARunningMail() async {
-        let fake = store { $0.running = false }
-        let calls: [(String, [String: Value])] = [
-            ("create_draft", ["subject": "s", "body": "b"]),
-            ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "confirm": true]),
-            ("reply", ["id": "10", "body": "b"]),
-            ("move_message", ["ids": ["10"], "mailbox": "A"]),
-            ("flag_message", ["ids": ["10"], "flagged": true]),
-            ("mark_read", ["ids": ["10"], "read": true]),
-            ("delete_message", ["ids": ["10"]]),
-        ]
-        for (tool, args) in calls {
+    static let writeCalls: [(String, [String: Value])] = [
+        ("create_draft", ["subject": "s", "body": "b"]),
+        ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "confirm": true]),
+        ("reply", ["id": "10", "body": "b"]),
+        ("move_message", ["ids": ["10"], "mailbox": "A"]),
+        ("flag_message", ["ids": ["10"], "flagged": true]),
+        ("mark_read", ["ids": ["10"], "read": true]),
+        ("delete_message", ["ids": ["10"]]),
+    ]
+
+    @Test func writesOpenMailWhenItIsClosedAndLeaveItRunning() async throws {
+        for (tool, args) in Self.writeCalls {
+            let fake = store { $0.running = false }
+            _ = try await run(tool, args, on: fake)
+            #expect(fake.read(\.launches) == 1 && fake.read(\.running), "\(tool)")
+            #expect(fake.read(\.calls).isEmpty == false, "\(tool)")
+        }
+        // Mail is open already: nothing is started.
+        let open = store()
+        _ = try await run("mark_read", ["ids": ["10"], "read": true], on: open)
+        #expect(open.read(\.launches) == 0)
+    }
+
+    @Test func writesFailWithAFixWhenMailDoesNotStart() async {
+        let fake = store {
+            $0.running = false
+            $0.launchFails = true
+        }
+        for (tool, args) in Self.writeCalls {
             let error = await failure(tool, args, on: fake)
-            #expect(error?.code == .appNotRunning && error?.fix == "Open Mail, then try again.", "\(tool)")
+            #expect(error == FakeMailStore.cannotStart, "\(tool)")
         }
         #expect(fake.read(\.calls).isEmpty)
+    }
+
+    @Test func toolDescriptionsNoLongerSayMailMustBeRunning() {
+        for spec in MailModule.toolSpecs {
+            #expect(spec.tool.description?.contains("Mail must be running") != true, "\(spec.tool.name)")
+        }
+        let send = MailModule.toolSpecs.first { $0.tool.name == "send_mail" }
+        #expect(send?.tool.description?.contains("opens it hidden in the background") == true)
     }
 
     @Test func writeUsesTheSixtySecondLimitSlot() async {

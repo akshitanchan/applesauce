@@ -55,4 +55,48 @@ import Testing
         let none = FileManager.default.temporaryDirectory.appendingPathComponent("applesauce-no-\(UUID())")
         #expect(AppleMailStore(mailRoot: none).hasFullDiskAccess() == false)
     }
+
+    // MARK: waiting for Mail
+
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func next() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            value += 1
+            return value
+        }
+    }
+
+    @Test func waitUntilStopsWhenTheProbeSaysTrue() async throws {
+        let counter = Counter()
+        let answered = try await AppleMailStore.waitUntil(seconds: 5, interval: 0.01) { counter.next() >= 3 }
+        #expect(answered && counter.next() == 4)
+    }
+
+    @Test func waitUntilGivesUpAfterTheLimit() async throws {
+        let counter = Counter()
+        let started = Date()
+        let answered = try await AppleMailStore.waitUntil(seconds: 0.2, interval: 0.05) {
+            _ = counter.next()
+            return false
+        }
+        #expect(answered == false)
+        #expect(Date().timeIntervalSince(started) < 2)
+        #expect(counter.next() > 2)
+    }
+
+    @Test func waitUntilPassesOnAnErrorFromTheProbe() async {
+        do {
+            _ = try await AppleMailStore.waitUntil(seconds: 5, interval: 0.01) {
+                throw ToolError.macOSOnly
+            }
+            Issue.record("expected an error")
+        } catch let error as ToolError {
+            #expect(error == ToolError.macOSOnly)
+        } catch {
+            Issue.record("wrong error")
+        }
+    }
 }

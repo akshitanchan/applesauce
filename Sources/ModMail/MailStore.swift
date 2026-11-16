@@ -128,8 +128,11 @@ struct OutgoingMail: Sendable, Equatable {
 /// The only way the mail module reaches Mail. The real store reads the Envelope Index and the `.emlx` files,
 /// and runs AppleScript. Tests use a fake.
 protocol MailStore: Sendable {
-    /// Writes need a running Mail. The script would start Mail by itself, so the module checks first.
+    /// True when Mail is running now. Nothing is started.
     func isMailRunning() -> Bool
+    /// Makes sure Mail is running. When it is not, Mail is started hidden in the background, and the call waits
+    /// (about 20 seconds at most) until Mail answers. Mail stays open. Throws `APP_NOT_RUNNING` when it does not start.
+    func ensureRunning() async throws
     /// True when macOS lets applesauce read the Mail folder (Full Disk Access).
     func hasFullDiskAccess() -> Bool
 

@@ -36,8 +36,59 @@ struct AppleMailStore: MailStore {
         ToolError(.appNotRunning, "Mail is not running.", fix: "Open Mail, then try again.")
     }
 
-    private func requireRunning() throws {
-        guard isMailRunning() else { throw Self.notRunning() }
+    static let mailBundleID = "com.apple.mail"
+    /// Seconds that a launched Mail has to answer an AppleScript.
+    static let launchWait: Double = 20
+
+    /// Starts Mail hidden in the background when it is not running, and waits until it answers.
+    /// Mail stays open afterwards. Throws `APP_NOT_RUNNING` when Mail does not start or does not answer in time.
+    func ensureRunning() async throws {
+        if isMailRunning() { return }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.mailBundleID) else {
+            throw ToolError(
+                .appNotRunning, "Mail is not installed on this Mac.", fix: "Install or restore Mail, then try again.")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.hides = true
+        do {
+            _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        } catch {
+            throw ToolError(
+                .appNotRunning, "applesauce could not open Mail (\(error.localizedDescription)).",
+                fix: "Open Mail yourself, then try again.")
+        }
+        let answered = try await Self.waitUntil(seconds: Self.launchWait, interval: 0.5) {
+            do {
+                _ = try await AppleScript.run(
+                    #"tell application "Mail" to return name"#, permission: .automationMail, appName: "Mail",
+                    timeout: 5)
+                return true
+            } catch let error as ToolError where error.code == .permissionDenied {
+                // A missing permission does not go away by waiting.
+                throw error
+            } catch {
+                return false
+            }
+        }
+        guard answered else {
+            throw ToolError(
+                .appNotRunning,
+                "applesauce opened Mail, but Mail did not answer within \(Int(Self.launchWait)) seconds.",
+                fix: "Check that Mail is not stuck on a dialog (for example a password prompt), then try again.")
+        }
+    }
+
+    /// Calls `probe` until it returns true or `seconds` have passed. It waits `interval` seconds between calls.
+    /// Returns whether the probe said true. An error from the probe ends the wait.
+    static func waitUntil(seconds: Double, interval: Double, _ probe: () async throws -> Bool) async throws -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(seconds))
+        while true {
+            if try await probe() { return true }
+            guard clock.now.advanced(by: .seconds(interval)) < deadline else { return false }
+            try await Task.sleep(for: .seconds(interval))
+        }
     }
 
     // MARK: index
@@ -109,7 +160,7 @@ struct AppleMailStore: MailStore {
             }
             .sorted { ($0.accountId, $0.path.lowercased()) < ($1.accountId, $1.path.lowercased()) }
         }
-        try requireRunning()
+        try await ensureRunning()
         let text = try await MailScripts.run(
             MailScripts.mailboxes, [account ?? MailScripts.none], timeout: readTimeout)
         return MailScripts.parseMailboxes(text)
@@ -122,7 +173,7 @@ struct AppleMailStore: MailStore {
     }
 
     func searchScripted(_ query: MailSearchQuery) async throws -> SearchPage {
-        try requireRunning()
+        try await ensureRunning()
         guard let mailbox = query.mailbox, let since = query.since, let before = query.before else {
             throw ToolError.invalidInput("The scoped search needs a mailbox and a date range.")
         }
@@ -180,7 +231,7 @@ struct AppleMailStore: MailStore {
     }
 
     func scriptedMessage(_ ref: MessageRef) async throws -> MailMessage {
-        try requireRunning()
+        try await ensureRunning()
         let text = try await MailScripts.run(
             MailScripts.message, [ref.accountId, ref.mailbox, ref.id], timeout: readTimeout)
         guard let message = MailScripts.parseMessage(text, ref: ref) else {

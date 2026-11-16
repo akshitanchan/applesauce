@@ -63,6 +63,9 @@ public struct MailModule: Module {
         ])
     }
 
+    private static let openNote =
+        "If Mail is not running, applesauce opens it hidden in the background and leaves it open."
+
     private static let fromNote =
         "With more than one Mail account, 'from' must say which one sends. Ask the user when it is not clear."
     private static let fromProperty = property(
@@ -122,7 +125,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "create_draft",
                 description:
-                    "Save a plain text draft in Mail. Nothing is sent. \(Self.fromNote) Mail must be running.",
+                    "Save a plain text draft in Mail. Nothing is sent. \(Self.fromNote) \(Self.openNote)",
                 properties: [
                     "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
                     "from": Self.fromProperty,
@@ -133,7 +136,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "send_mail",
                 description:
-                    "Send a plain text email. \(Self.confirmNote) \(Self.fromNote) Mail must be running. Sending cannot be undone. On Gmail accounts, Mail may leave a copy in Drafts.",
+                    "Send a plain text email. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone. On Gmail accounts, Mail may leave a copy in Drafts.",
                 properties: [
                     "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
                     "from": Self.fromProperty,
@@ -145,7 +148,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "reply",
                 description:
-                    "Reply to a message with plain text. Mail adds the quoted original. \(Self.confirmNote) Mail must be running.",
+                    "Reply to a message with plain text. Mail adds the quoted original. \(Self.confirmNote) \(Self.openNote)",
                 properties: [
                     "id": Self.property("string", "Message id from search_mail."),
                     "body": Self.property("string", "Plain text of the reply."),
@@ -157,7 +160,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "move_message",
                 description:
-                    "Move messages (at most \(Self.batchLimit)) to a mailbox. Each moved message gets a new id. \(Self.confirmNoteForMove) Mail must be running.",
+                    "Move messages (at most \(Self.batchLimit)) to a mailbox. Each moved message gets a new id. \(Self.confirmNoteForMove) \(Self.openNote)",
                 properties: [
                     "ids": Self.idsProperty,
                     "mailbox": Self.property("string", "Name or path of the target mailbox."),
@@ -170,7 +173,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "flag_message",
                 description:
-                    "Flag or unflag messages (at most \(Self.batchLimit)). Give 'color' to flag with a color. Without 'color', Mail uses its default flag. Mail must be running.",
+                    "Flag or unflag messages (at most \(Self.batchLimit)). Give 'color' to flag with a color. Without 'color', Mail uses its default flag. \(Self.openNote)",
                 properties: [
                     "ids": Self.idsProperty,
                     "flagged": Self.property("boolean", "true to flag, false to remove the flag."),
@@ -180,7 +183,7 @@ public struct MailModule: Module {
                 required: ["ids", "flagged"], write: true, idempotent: true),
             ToolSpec(
                 name: "mark_read",
-                description: "Mark messages (at most \(Self.batchLimit)) as read or unread. Mail must be running.",
+                description: "Mark messages (at most \(Self.batchLimit)) as read or unread. \(Self.openNote)",
                 properties: [
                     "ids": Self.idsProperty,
                     "read": Self.property("boolean", "true for read, false for unread."),
@@ -190,7 +193,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "delete_message",
                 description:
-                    "Delete messages (at most \(Self.batchLimit)). Mail moves them to the Trash mailbox. Each deleted message gets a new id. \(Self.confirmNoteForDelete) Mail must be running.",
+                    "Delete messages (at most \(Self.batchLimit)). Mail moves them to the Trash mailbox. Each deleted message gets a new id. \(Self.confirmNoteForDelete) \(Self.openNote)",
                 properties: [
                     "ids": Self.idsProperty,
                     "confirm": Self.confirmDeleteProperty,
@@ -364,10 +367,9 @@ public struct MailModule: Module {
         return (mailbox, account)
     }
 
-    private func requireRunning() throws {
-        guard store.isMailRunning() else {
-            throw ToolError(.appNotRunning, "Mail is not running.", fix: "Open Mail, then try again.")
-        }
+    /// Starts Mail hidden in the background when it is not running, and waits until it answers.
+    private func requireRunning() async throws {
+        try await backend(seconds: writeTimeout) { try await $0.ensureRunning() }
     }
 
     private static var fullDiskFix: String {
@@ -538,7 +540,7 @@ public struct MailModule: Module {
                         "\(Self.fullDiskFix) Or give 'in_mailbox' and 'in_account' (from search_mail) to read it through Mail."
                 )
             }
-            try requireRunning()
+            try await requireRunning()
             let ref = MessageRef(id: id, accountId: place.account, mailbox: place.mailbox)
             message = try await backend { try await $0.scriptedMessage(ref) }
         } else if let found = message, found.body == nil {
@@ -612,7 +614,7 @@ public struct MailModule: Module {
         let requestedSender = try trimmed(args, "from")
         let confirm = sending ? try args.bool("confirm") : nil
         let confirmed = confirm == true
-        try requireRunning()
+        try await requireRunning()
         let sender = try await senderAddress(requestedSender)
         mail.from = sender
         let outgoing = mail
@@ -677,7 +679,7 @@ public struct MailModule: Module {
         let replyAll = try args.bool("reply_all") ?? false
         let confirmed = (try args.bool("confirm")) == true
         let place = try location(args)
-        try requireRunning()
+        try await requireRunning()
         let ref = try await refs([id], at: place)[0]
         try await backend(seconds: writeTimeout, onTimeout: confirmed ? Self.sendTimeout : nil) {
             try await $0.reply(to: ref, body: body, replyAll: replyAll, send: confirmed)
@@ -719,7 +721,7 @@ public struct MailModule: Module {
         default:
             break
         }
-        try requireRunning()
+        try await requireRunning()
         let found = try await refs(ids, at: place)
         if !confirmed, let reason = Self.confirmReason(tool: tool, refs: found, target: target) {
             return try ToolOutput(
