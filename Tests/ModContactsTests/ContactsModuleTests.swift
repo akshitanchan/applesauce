@@ -51,8 +51,9 @@ import Testing
 
     @Test func toolNamesAndFlags() {
         let tools = module(store()).tools
-        #expect(tools.map(\.tool.name) == ["search_contacts", "get_contact"])
-        #expect(tools.allSatisfy { !$0.isWrite })
+        #expect(tools.map(\.tool.name) == ["search_contacts", "get_contact", "create_contact", "update_contact"])
+        #expect(tools.filter(\.isWrite).map(\.tool.name) == ["create_contact", "update_contact"])
+        #expect(tools.allSatisfy { $0.tool.annotations.destructiveHint != true })
     }
 
     // MARK: input checks

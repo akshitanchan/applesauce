@@ -17,6 +17,8 @@ final class FakeContactsStore: ContactsStore, @unchecked Sendable {
         /// What `contact(id:)` returns, with all fields. Falls back to `contacts`.
         var details: [ContactInfo] = []
         var calls: [String] = []
+        var created: NewContact?
+        var updated: (id: String, patch: ContactPatch)?
     }
 
     private let lock = NSLock()
@@ -32,7 +34,7 @@ final class FakeContactsStore: ContactsStore, @unchecked Sendable {
         return body(state)
     }
 
-    private func write(_ body: (inout State) -> Void) {
+    fileprivate func write(_ body: (inout State) -> Void) {
         lock.lock()
         defer { lock.unlock() }
         body(&state)
@@ -59,6 +61,32 @@ final class FakeContactsStore: ContactsStore, @unchecked Sendable {
     func contact(id: String) async throws -> ContactInfo? {
         write { $0.calls.append("contact") }
         return read(\.details).first { $0.id == id } ?? read(\.contacts).first { $0.id == id }
+    }
+}
+
+extension FakeContactsStore {
+    func create(_ contact: NewContact) async throws -> ContactInfo {
+        write {
+            $0.calls.append("create")
+            $0.created = contact
+        }
+        let name = [contact.givenName, contact.familyName].compactMap { $0 }.joined(separator: " ")
+        var info = ContactInfo(id: "NEW", name: name.isEmpty ? (contact.organization ?? "") : name)
+        info.givenName = contact.givenName
+        info.familyName = contact.familyName
+        info.organization = contact.organization
+        info.emails = contact.emails
+        info.phones = contact.phones
+        info.birthday = contact.birthday?.text
+        return info
+    }
+
+    func update(id: String, _ patch: ContactPatch) async throws -> ContactInfo {
+        write {
+            $0.calls.append("update")
+            $0.updated = (id, patch)
+        }
+        return read(\.details).first { $0.id == id } ?? read(\.contacts).first { $0.id == id }!
     }
 }
 
