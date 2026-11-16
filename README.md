@@ -9,6 +9,8 @@
 
 One MCP server for the Apple apps on your Mac.
 
+![applesauce demo: an assistant plans a day with Calendar, Notes, Mail and Reminders (sample data)](assets/demo.gif)
+
 applesauce is one small native program, written in Swift. It lets an AI assistant work with your Calendar, Reminders, Mail, Notes and Contacts. It can also run Shortcuts, search files with Spotlight, and use the clipboard. It talks to the assistant over MCP (the Model Context Protocol) on stdin and stdout.
 
 - Needs macOS 14 or newer. Works on Apple silicon and Intel.
