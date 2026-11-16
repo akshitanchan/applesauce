@@ -40,3 +40,4 @@ jobs:
           scripts/build-universal.sh
           scripts/pack-npm.sh
           scripts/pack-mcpb.sh
+          npm publish "./dist/applesauce-$(scripts/version.sh).tgz" --dry-run --access public

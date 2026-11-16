@@ -95,4 +95,5 @@ jobs:
           if [[ "$version" == *-* ]]; then flags+=(--tag next); fi
           # npm provenance works only for a public repository.
           if [[ "$REPO_PRIVATE" == "false" ]]; then flags+=(--provenance); fi
-          npm publish "dist/applesauce-$version.tgz" "${flags[@]}"
+          # The ./ keeps npm from reading the path as a GitHub user/repo shorthand.
+          npm publish "./dist/applesauce-$version.tgz" "${flags[@]}"
