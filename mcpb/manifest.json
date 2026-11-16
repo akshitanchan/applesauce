@@ -6,7 +6,8 @@
   "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts, Shortcuts, Spotlight and System on your Mac.",
   "long_description": "applesauce is a native macOS program. It lets your AI assistant read and change your Calendar, Reminders, Mail, Notes and Contacts, run Shortcuts, search files with Spotlight, and use the clipboard and notifications. macOS asks for permission the first time each app is used. The bundle is ad-hoc signed, so macOS asks again after each update. Ask Claude to run the doctor tool to see each permission and how to fix it.",
   "author": {
-    "name": "Akshit Anchan"
+    "name": "Akshit Anchan",
+    "url": "https://github.com/akshitanchan"
   },
   "icon": "icon-dark.png",
   "icons": [
