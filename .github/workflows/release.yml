@@ -140,5 +140,6 @@ jobs:
         env:
           MCP_PRIVATE_KEY: ${{ secrets.MCP_PRIVATE_KEY }}
         run: |
-          ./mcp-publisher login dns --domain akshitanchan.com
+          # mcp-publisher 1.8 takes the key only as a flag, not from the environment. GitHub masks it in the log.
+          ./mcp-publisher login dns --domain akshitanchan.com --private-key "$MCP_PRIVATE_KEY"
           ./mcp-publisher publish
