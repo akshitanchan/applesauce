@@ -378,9 +378,19 @@ enum MIMEReader {
         let name = (charset ?? "utf-8").trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")).lowercased()
         let data = Data(bytes)
         func encoding(_ iana: String) -> String.Encoding? {
+            #if os(macOS)
             let cf = CFStringConvertIANACharSetNameToEncoding(iana as CFString)
             guard cf != kCFStringEncodingInvalidId else { return nil }
             return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
+            #else
+            // Linux builds never read mail. A few common names keep this compiling and correct.
+            switch iana {
+            case "iso-8859-1", "latin1": return .isoLatin1
+            case "windows-1252", "cp1252": return .windowsCP1252
+            case "us-ascii", "ascii": return .ascii
+            default: return nil
+            }
+            #endif
         }
         if name != "utf-8" && name != "utf8" && name != "us-ascii", let wanted = encoding(name),
             let text = String(data: data, encoding: wanted)
