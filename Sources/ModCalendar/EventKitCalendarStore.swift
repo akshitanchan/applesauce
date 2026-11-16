@@ -63,6 +63,8 @@ actor EventKitCalendarStore: CalendarStore {
         event.location = draft.location
         event.notes = draft.notes
         event.url = draft.url.flatMap { URL(string: $0) }
+        setAlarms(draft.alerts, on: event)
+        if let rule = draft.repeat { event.recurrenceRules = [Self.recurrenceRule(rule)] }
         try save(event, span: .thisEvent)
         return Self.info(event)
     }
@@ -77,7 +79,27 @@ actor EventKitCalendarStore: CalendarStore {
         if let location = patch.location { event.location = location.isEmpty ? nil : location }
         if let notes = patch.notes { event.notes = notes.isEmpty ? nil : notes }
         if let url = patch.url { event.url = url.isEmpty ? nil : URL(string: url) }
-        try save(event, span: Self.ekSpan(span))
+        if let alerts = patch.alerts { setAlarms(alerts, on: event) }
+        switch patch.repeat {
+        case .set(let rule)?: event.recurrenceRules = [Self.recurrenceRule(rule)]
+        case .clear?: event.recurrenceRules = nil
+        case nil: break
+        }
+        var target: EKCalendar?
+        if let id = patch.calendarId {
+            guard let calendar = store.calendar(withIdentifier: id) else {
+                throw ToolError(
+                    .notFound, "No calendar has the id '\(id)'.", fix: "Use a calendar from list_calendars.")
+            }
+            event.calendar = calendar
+            target = calendar
+        }
+        do {
+            try store.save(event, span: Self.ekSpan(span), commit: true)
+        } catch {
+            if let target { throw Self.moveError(error, to: target.title) }
+            throw Self.saveError(error)
+        }
         return Self.info(event)
     }
 
@@ -117,6 +139,98 @@ actor EventKitCalendarStore: CalendarStore {
         } catch {
             throw Self.saveError(error)
         }
+    }
+
+    private func setAlarms(_ minutes: [Int], on event: EKEvent) {
+        event.alarms = minutes.isEmpty ? nil : minutes.map { EKAlarm(relativeOffset: TimeInterval(-$0 * 60)) }
+    }
+
+    /// EventKit may refuse to move an event to a calendar of another account (source).
+    private static func moveError(_ error: Error, to calendar: String) -> ToolError {
+        ToolError(
+            .invalidInput, "Calendar could not move the event to '\(calendar)': \(error.localizedDescription)",
+            fix:
+                "Calendar can refuse to move an event between accounts. Create the event in '\(calendar)' with create_event, then delete the old one."
+        )
+    }
+
+    private static func recurrenceRule(_ rule: RepeatRule) -> EKRecurrenceRule {
+        let frequency: EKRecurrenceFrequency =
+            switch rule.frequency {
+            case .daily: .daily
+            case .weekly: .weekly
+            case .monthly: .monthly
+            case .yearly: .yearly
+            }
+        var end: EKRecurrenceEnd?
+        if let date = rule.end {
+            end = EKRecurrenceEnd(end: date)
+        } else if let count = rule.count {
+            end = EKRecurrenceEnd(occurrenceCount: count)
+        }
+        let days = rule.days.map { EKRecurrenceDayOfWeek(weekday($0)) }
+        return EKRecurrenceRule(
+            recurrenceWith: frequency, interval: rule.interval, daysOfTheWeek: days.isEmpty ? nil : days,
+            daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil, daysOfTheYear: nil, setPositions: nil,
+            end: end)
+    }
+
+    private static func weekday(_ day: Weekday) -> EKWeekday {
+        switch day {
+        case .mon: .monday
+        case .tue: .tuesday
+        case .wed: .wednesday
+        case .thu: .thursday
+        case .fri: .friday
+        case .sat: .saturday
+        case .sun: .sunday
+        }
+    }
+
+    private static func repeatRule(_ rule: EKRecurrenceRule?) -> RepeatRule? {
+        guard let rule else { return nil }
+        let frequency: RepeatFrequency =
+            switch rule.frequency {
+            case .daily: .daily
+            case .weekly: .weekly
+            case .monthly: .monthly
+            case .yearly: .yearly
+            @unknown default: .daily
+            }
+        var result = RepeatRule(frequency: frequency, interval: max(rule.interval, 1))
+        result.end = rule.recurrenceEnd?.endDate
+        if let count = rule.recurrenceEnd?.occurrenceCount, count > 0 { result.count = count }
+        let found = (rule.daysOfTheWeek ?? []).compactMap { Self.weekday(from: $0.dayOfTheWeek) }
+        result.days = Weekday.allCases.filter { found.contains($0) }
+        return result
+    }
+
+    private static func weekday(from day: EKWeekday) -> Weekday? {
+        switch day {
+        case .monday: .mon
+        case .tuesday: .tue
+        case .wednesday: .wed
+        case .thursday: .thu
+        case .friday: .fri
+        case .saturday: .sat
+        case .sunday: .sun
+        @unknown default: nil
+        }
+    }
+
+    /// Alerts as minutes before the start. Alerts that depend on a place are left out.
+    private static func alerts(_ event: EKEvent) -> [Int] {
+        let minutes = (event.alarms ?? []).compactMap { alarm -> Int? in
+            guard alarm.proximity == .none else { return nil }
+            let seconds: TimeInterval
+            if let date = alarm.absoluteDate {
+                seconds = event.startDate.timeIntervalSince(date)
+            } else {
+                seconds = -alarm.relativeOffset
+            }
+            return seconds >= 0 ? Int((seconds / 60).rounded()) : nil
+        }
+        return Array(Set(minutes)).sorted(by: >)
     }
 
     private static func saveError(_ error: Error) -> ToolError {
@@ -159,7 +273,8 @@ actor EventKitCalendarStore: CalendarStore {
             allDay: event.isAllDay, location: event.location.flatMap { $0.isEmpty ? nil : $0 },
             notes: event.notes.flatMap { $0.isEmpty ? nil : $0 }, url: event.url?.absoluteString,
             calendar: event.calendar?.title ?? "", calendarId: event.calendar?.calendarIdentifier ?? "",
-            recurring: recurring, readOnly: !(event.calendar?.allowsContentModifications ?? false))
+            recurring: recurring, readOnly: !(event.calendar?.allowsContentModifications ?? false),
+            alerts: alerts(event), repeat: repeatRule(event.recurrenceRules?.first))
     }
 }
 #endif

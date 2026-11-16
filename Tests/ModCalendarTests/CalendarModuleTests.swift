@@ -224,7 +224,9 @@ import Testing
         let event = eventInfo(
             id, "Standup", start: "2026-11-19T09:00:00+01:00", end: "2026-11-19T09:15:00+01:00", recurring: true)
         let fake = store { $0.events = [event] }
-        _ = try await run("update_event", ["id": .string(id), "title": "Sync", "span": "future"], on: fake)
+        _ = try await run(
+            "update_event", ["id": .string(id), "title": "Sync", "span": "future", "confirm": true],
+            on: fake)
         let update = try #require(fake.read(\.updated))
         #expect(update.ref == EventRef(identifier: "R1", occurrence: date("2026-11-19T09:00:00+01:00")))
         #expect(update.span == .future)

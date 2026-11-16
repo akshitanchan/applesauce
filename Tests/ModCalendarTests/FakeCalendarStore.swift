@@ -80,7 +80,8 @@ final class FakeCalendarStore: CalendarStore, @unchecked Sendable {
         return EventInfo(
             id: "NEW", title: event.title, start: event.start, end: event.end, allDay: event.allDay,
             location: event.location, notes: event.notes, url: event.url, calendar: calendar.title,
-            calendarId: calendar.id, recurring: false, readOnly: !calendar.writable)
+            calendarId: calendar.id, recurring: event.repeat != nil, readOnly: !calendar.writable,
+            alerts: event.alerts, repeat: event.repeat)
     }
 
     func update(_ ref: EventRef, _ patch: EventPatch, span: EventSpan) async throws -> EventInfo {

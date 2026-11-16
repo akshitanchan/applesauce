@@ -24,6 +24,54 @@ struct EventInfo: Encodable, Sendable, Equatable {
     let recurring: Bool
     /// True when the calendar does not allow changes (for example a subscribed calendar).
     let readOnly: Bool
+    /// Alerts as minutes before the start, from the earliest alert to the latest. Empty when there are none.
+    var alerts: [Int] = []
+    /// The repeat rule of a recurring event.
+    var `repeat`: RepeatRule?
+}
+
+enum RepeatFrequency: String, Encodable, Sendable {
+    case daily, weekly, monthly, yearly
+
+    var unit: String {
+        switch self {
+        case .daily: "day"
+        case .weekly: "week"
+        case .monthly: "month"
+        case .yearly: "year"
+        }
+    }
+}
+
+enum Weekday: String, Encodable, Sendable, CaseIterable {
+    case mon, tue, wed, thu, fri, sat, sun
+}
+
+/// How an event repeats. `end` and `count` are never both set. With neither, the event repeats without end.
+struct RepeatRule: Encodable, Sendable, Equatable {
+    var frequency: RepeatFrequency
+    var interval = 1
+    /// The last moment in which an occurrence can start.
+    var end: Date?
+    var count: Int?
+    /// Only for weekly rules.
+    var days: [Weekday] = []
+
+    /// A short text, for example `every 2 weeks on mon, wed until 2026-12-31T23:59:59Z`.
+    var text: String {
+        var text = interval == 1 ? "every \(frequency.unit)" : "every \(interval) \(frequency.unit)s"
+        if !days.isEmpty { text += " on " + days.map(\.rawValue).joined(separator: ", ") }
+        if let end { text += " until \(ISODate.string(end))" }
+        if let count { text += ", \(count) times" }
+        return text
+    }
+}
+
+/// A change of the repeat rule in `update_event`.
+enum RepeatChange: Sendable, Equatable {
+    case set(RepeatRule)
+    /// Make the event not recurring.
+    case clear
 }
 
 enum EventSpan: String, Sendable {
@@ -43,6 +91,9 @@ struct NewEvent: Sendable, Equatable {
     var location: String?
     var notes: String?
     var url: String?
+    /// Minutes before the start.
+    var alerts: [Int] = []
+    var `repeat`: RepeatRule?
 }
 
 /// Changes for `update_event`. A nil field stays as it is. For text fields an empty string clears the value.
@@ -54,6 +105,11 @@ struct EventPatch: Sendable, Equatable {
     var location: String?
     var notes: String?
     var url: String?
+    /// Minutes before the start. Replaces all alerts. An empty array removes them.
+    var alerts: [Int]?
+    var `repeat`: RepeatChange?
+    /// Moves the event to this calendar.
+    var calendarId: String?
 }
 
 /// An event id as the tools show it.

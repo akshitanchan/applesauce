@@ -42,6 +42,29 @@ public struct CalendarModule: Module {
             "For a recurring event: 'this' changes only this occurrence (default), 'future' changes this and all later ones.",
     ]
 
+    private static let alertsNote =
+        "Minutes before the start, 0 to 40320, at most 5. For example [10, 1440] is an alert 10 minutes before and one day before."
+    private static let repeatProperty: Value = [
+        "type": "object",
+        "description":
+            "How the event repeats. Set 'frequency'. 'interval' (1 to 99, default 1) is the gap between repeats. Give 'end' (a date, the last day a repeat can start) or 'count' (1 to 999 occurrences), not both. Without them the event repeats forever. 'days' is only for 'weekly'. Frequency 'none' or null removes the rule.",
+        "properties": [
+            "frequency": [
+                "type": "string", "enum": ["daily", "weekly", "monthly", "yearly", "none"],
+                "description": "How often the event repeats.",
+            ],
+            "interval": property("integer", "Every n days, weeks, months or years. 1 to 99. Default 1."),
+            "end": property("string", "Last day a repeat can start. \(dateNote)"),
+            "count": property("integer", "Number of occurrences in total, 1 to 999."),
+            "days": [
+                "type": "array",
+                "items": ["type": "string", "enum": Value.array(Weekday.allCases.map { .string($0.rawValue) })],
+                "description": "Weekdays for a weekly rule, for example [\"mon\", \"wed\"].",
+            ],
+        ],
+        "required": ["frequency"],
+    ]
+
     public var tools: [ToolSpec] { Self.toolSpecs }
 
     public static var toolSpecs: [ToolSpec] {
@@ -80,7 +103,7 @@ public struct CalendarModule: Module {
             ToolSpec(
                 name: "create_event",
                 description:
-                    "Create an event. Dates are \(Self.dateNote). With date-only 'start' and 'end', or 'all_day' true, it is an all-day event and 'end' is the last day.",
+                    "Create an event. Dates are \(Self.dateNote). With date-only 'start' and 'end', or 'all_day' true, it is an all-day event and 'end' is the last day. 'alerts' and 'repeat' are optional.",
                 properties: [
                     "title": Self.property("string", "Event title."),
                     "start": Self.property("string", "Start. \(Self.dateNote)"),
@@ -90,12 +113,16 @@ public struct CalendarModule: Module {
                     "notes": Self.property("string", "Notes."),
                     "all_day": Self.property("boolean", "All-day event."),
                     "url": Self.property("string", "A URL, for example https://example.com."),
+                    "alerts": [
+                        "type": "array", "items": ["type": "integer"], "description": .string(Self.alertsNote),
+                    ],
+                    "repeat": Self.repeatProperty,
                 ],
                 required: ["title", "start", "end"], write: true),
             ToolSpec(
                 name: "update_event",
                 description:
-                    "Change fields of an event. Send only the fields to change. An empty string clears 'location', 'notes' or 'url'. Dates are \(Self.dateNote).",
+                    "Change fields of an event. Send only the fields to change. An empty string clears 'location', 'notes' or 'url'. Dates are \(Self.dateNote). 'alerts' replaces all alerts, and [] removes them. 'calendar' moves the event to another calendar. Calendar may refuse to move an event to a calendar of another account. For a recurring event, 'span' 'future' changes this and all later occurrences, and it needs 'confirm' true. Changing 'repeat' needs 'span' 'future' (null or frequency 'none' removes the rule). Moving a recurring event to another calendar also needs 'span' 'future'.",
                 properties: [
                     "id": Self.property("string", Self.idNote),
                     "title": Self.property("string", "New title."),
@@ -105,7 +132,19 @@ public struct CalendarModule: Module {
                     "notes": Self.property("string", "New notes. Empty string clears them."),
                     "all_day": Self.property("boolean", "Make the event all-day or not."),
                     "url": Self.property("string", "New URL. Empty string clears it."),
+                    "calendar": Self.property(
+                        "string", "Move the event to this calendar (name or id). Names ignore case."),
+                    "alerts": [
+                        "type": "array", "items": ["type": "integer"],
+                        "description": .string(
+                            "New alerts, replacing all old ones. [] removes all. \(Self.alertsNote)"),
+                    ],
+                    "repeat": Self.repeatProperty,
                     "span": Self.spanProperty,
+                    "confirm": Self.property(
+                        "boolean",
+                        "Must be true to change a recurring event with 'span' 'future'. It changes all later occurrences."
+                    ),
                 ],
                 required: ["id"], write: true, idempotent: true),
             ToolSpec(
@@ -193,6 +232,10 @@ public struct CalendarModule: Module {
         parts.append(event.allDay ? "\(range) (all day)" : range)
         parts.append(event.calendar)
         if let location = event.location, !location.isEmpty { parts.append("at \(location)") }
+        if let rule = event.repeat { parts.append("repeats \(rule.text)") }
+        if !event.alerts.isEmpty {
+            parts.append("alerts \(event.alerts.map(String.init).joined(separator: ", ")) min before")
+        }
         parts.append("id: \(event.id)")
         return parts.joined(separator: " | ")
     }
@@ -313,13 +356,17 @@ public struct CalendarModule: Module {
         let notes = try args.string("notes")
         let allDay = try args.bool("all_day")
         let url = try args.url("url")
+        let alerts = try args.alerts() ?? []
+        var rule: RepeatRule?
+        if case .set(let given)? = try args.repeatChange() { rule = given }
         let times = try Self.resolveTimes(start: start, end: end, allDay: allDay, existing: nil)
+        try rule?.checkEnd(after: times.start)
 
         try await access()
         let calendar = try await calendar(named: calendarName, writable: true)
         let draft = NewEvent(
             title: title, start: times.start, end: times.end, allDay: times.allDay, calendarId: calendar?.id,
-            location: location, notes: notes, url: url?.isEmpty == true ? nil : url)
+            location: location, notes: notes, url: url?.isEmpty == true ? nil : url, alerts: alerts, repeat: rule)
         let event = try await backend { try await $0.create(draft) }
         return try ToolOutput(text: "Created event: " + Self.describe(event), payload: event)
     }
@@ -335,6 +382,7 @@ public struct CalendarModule: Module {
     private func updateEvent(_ args: Arguments) async throws -> ToolOutput {
         let ref = try EventRef.parse(try args.requiredString("id"))
         let span = try spanArgument(args)
+        let confirmed = try args.bool("confirm") == true
         let title = try args.string("title")
         if title?.isEmpty == true { throw ToolError.invalidInput("'title' must not be empty.") }
         let start = try args.date("start")
@@ -343,9 +391,16 @@ public struct CalendarModule: Module {
         let location = try args.string("location")
         let notes = try args.string("notes")
         let url = try args.url("url")
-        var patch = EventPatch(title: title, location: location, notes: notes, url: url)
+        let calendarName = try args.string("calendar")
+        let alerts = try args.alerts()
+        let repeatChange = try args.repeatChange()
+        var patch = EventPatch(
+            title: title, location: location, notes: notes, url: url, alerts: alerts, repeat: repeatChange)
         let changesTime = start != nil || end != nil || allDay != nil
-        guard changesTime || title != nil || location != nil || notes != nil || url != nil else {
+        guard
+            changesTime || title != nil || location != nil || notes != nil || url != nil || calendarName != nil
+                || alerts != nil || repeatChange != nil
+        else {
             throw ToolError.invalidInput("Give at least one field to change.")
         }
 
@@ -353,11 +408,38 @@ public struct CalendarModule: Module {
         let current = try await existing(ref)
         if current.recurring && ref.occurrence == nil { throw EventRef.bareRecurringError }
         if current.readOnly { throw Self.readOnlyCalendar(current.calendar) }
+        if current.recurring && span != .future {
+            if repeatChange != nil {
+                throw ToolError(
+                    .invalidInput, "Changing 'repeat' of a recurring event needs 'span' 'future'.",
+                    fix:
+                        "Call again with 'span' 'future' and 'confirm' true. The rule then changes for this and all later occurrences."
+                )
+            }
+            if calendarName != nil {
+                throw ToolError(
+                    .invalidInput, "Moving a recurring event to another calendar needs 'span' 'future'.",
+                    fix: "Call again with 'span' 'future' and 'confirm' true."
+                )
+            }
+        }
+        if let calendarName {
+            patch.calendarId = try await calendar(named: calendarName, writable: true)?.id
+        }
+        var newTimes = (start: current.start, end: current.end)
         if changesTime {
             let times = try Self.resolveTimes(start: start, end: end, allDay: allDay, existing: current)
             patch.start = times.start
             patch.end = times.end
             patch.allDay = times.allDay
+            newTimes = (times.start, times.end)
+        }
+        if case .set(let rule)? = repeatChange { try rule.checkEnd(after: newTimes.start) }
+        if current.recurring && span == .future && !confirmed {
+            return try ToolOutput(
+                text:
+                    "Nothing changed. This changes this and all later occurrences of '\(current.title)'. Call again with 'confirm' true.",
+                payload: ConfirmNeeded(event: current))
         }
         let changes = patch
         let event = try await backend { try await $0.update(ref, changes, span: span) }
