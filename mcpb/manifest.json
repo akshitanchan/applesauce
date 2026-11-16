@@ -105,11 +105,11 @@
     },
     {
       "name": "create_event",
-      "description": "Create an event. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. With date-only start and end, or all_day true, it is an all-day event and end is the last day."
+      "description": "Create an event. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. With date-only start and end, or all_day true, it is an all-day event and end is the last day. alerts and repeat are optional."
     },
     {
       "name": "update_event",
-      "description": "Change fields of an event. Send only the fields to change. An empty string clears location, notes or url. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
+      "description": "Change fields of an event. Send only the fields to change. An empty string clears location, notes or url. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. alerts replaces all alerts, and calendar moves the event. For a recurring event, span future changes this and all later occurrences and needs confirm true. Changing repeat needs span future."
     },
     {
       "name": "delete_event",
@@ -118,6 +118,10 @@
     {
       "name": "list_reminder_lists",
       "description": "List all reminder lists with their id, source and whether they allow changes."
+    },
+    {
+      "name": "create_reminder_list",
+      "description": "Create a reminder list. It fails when a list with the same name already exists."
     },
     {
       "name": "list_reminders",
@@ -133,11 +137,11 @@
     },
     {
       "name": "create_reminder",
-      "description": "Create a reminder. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. A date-only due has a day but no time."
+      "description": "Create a reminder. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. A date-only due has a day but no time. Subtasks and tags are not supported."
     },
     {
       "name": "update_reminder",
-      "description": "Change fields of a reminder. Send only the fields to change. An empty string clears due, notes or url. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
+      "description": "Change fields of a reminder. Send only the fields to change. An empty string clears due, notes or url. list moves the reminder to another list. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
     },
     {
       "name": "complete_reminder",
@@ -234,6 +238,14 @@
     {
       "name": "get_contact",
       "description": "Get one contact with all details: name, organization, job title, emails and phones with labels, postal addresses and birthday. Notes are never returned."
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact. It refuses when a contact with the same full name or email exists, unless allow_duplicate is true. Notes are not supported."
+    },
+    {
+      "name": "update_contact",
+      "description": "Change a contact. Text fields replace the old value. Emails and phones change with add and remove arguments. The result has the old values of the changed fields. Notes are not supported."
     },
     {
       "name": "list_shortcuts",

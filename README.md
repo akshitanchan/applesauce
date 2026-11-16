@@ -25,10 +25,10 @@ applesauce is one small native program, written in Swift. It lets an AI assistan
 | Module | Tools |
 |---|---|
 | calendar | `list_calendars`, `list_events`, `search_events`, `get_event`, `create_event`, `update_event`, `delete_event` |
-| reminders | `list_reminder_lists`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder` |
+| reminders | `list_reminder_lists`, `create_reminder_list`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder` |
 | mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_mail`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
 | notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `move_note`, `delete_note` |
-| contacts | `search_contacts`, `get_contact` |
+| contacts | `search_contacts`, `get_contact`, `create_contact`, `update_contact` |
 | shortcuts | `list_shortcuts`, `run_shortcut` |
 | spotlight | `search_files` |
 | system | `get_clipboard`, `set_clipboard`, `notify`, `open` |
@@ -96,7 +96,7 @@ macOS keeps your data private. The first time a tool needs an app, macOS shows a
 |---|---|---|
 | Calendars | calendar | Prompt on the first calendar tool. Full access, so events can be read and changed. |
 | Reminders | reminders | Prompt on the first reminders tool. |
-| Contacts | contacts | Prompt on the first contacts tool. |
+| Contacts | contacts | Prompt on the first contacts tool. One permission for reading, creating and changing contacts. |
 | Automation for Mail | mail | Prompt on the first mail tool. If Mail is not running, applesauce opens it hidden in the background and leaves it open. |
 | Automation for Notes | notes | Prompt on the first notes tool. Notes must be running. |
 | Full Disk Access | mail search | Optional. Gives fast search over all mail. |
@@ -127,7 +127,7 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 - `run_shortcut` runs a shortcut, and a shortcut can do anything on your Mac. Turn off the `shortcuts` module if you do not want that.
 - Every call has a time limit (30 seconds, and 120 seconds for a permission prompt).
 - Attachments are saved only by `get_mail_attachment` and `get_note_attachment`. Both need `confirm: true` on every call, and `--read-only` hides them. A file is limited to 25 MB. It goes to `~/Library/Caches/applesauce/attachments` (private to your user) and is deleted after 24 hours.
-- Contact notes are never returned.
+- Contact notes are never read or written. macOS refuses to save a change to a contact that has a note, unless the app has a special Apple entitlement. `update_contact` then returns an error and changes nothing.
 
 ### What can be undone
 
@@ -139,6 +139,8 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 | Delete emails that are already in the Trash | None. The delete is final. | `confirm: true` |
 | Delete an event or a reminder | The result has a full copy, so the assistant can create it again (with a new id). | none |
 | Delete all later occurrences of a recurring event | None. | `confirm: true` |
+| Change all later occurrences of a recurring event (`update_event` with `span: "future"`) | None. | `confirm: true` |
+| Change a contact with `update_contact` | The result has `previous` with the old values of the changed fields. | none |
 
 Without `confirm: true`, a gated call changes nothing and says why. Your assistant can still pass `confirm: true` by itself, so `--read-only` is the only hard block.
 

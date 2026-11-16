@@ -17,7 +17,7 @@
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>applesauce reads and changes your reminders when your AI assistant asks it to.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>applesauce searches your contacts when your AI assistant asks it to.</string>
+	<string>applesauce searches, creates and changes your contacts when your AI assistant asks it to.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>applesauce controls Mail, Notes and other apps when your AI assistant asks it to.</string>
 </dict>
