@@ -11,8 +11,13 @@ actor EventKitCalendarStore: CalendarStore {
         SystemPermissionChecker().state(of: .calendars)
     }
 
+    /// Uses the completion handler form. The async form sends the store out of this actor, which Swift 6.1 rejects.
     func requestAccess() async throws -> Bool {
-        try await store.requestFullAccessToEvents()
+        try await withCheckedThrowingContinuation { continuation in
+            store.requestFullAccessToEvents { granted, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+            }
+        }
     }
 
     func calendars() async throws -> [CalendarInfo] {

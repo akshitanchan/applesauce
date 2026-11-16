@@ -11,8 +11,13 @@ actor EventKitRemindersStore: RemindersStore {
         SystemPermissionChecker().state(of: .reminders)
     }
 
+    /// Uses the completion handler form. The async form sends the store out of this actor, which Swift 6.1 rejects.
     func requestAccess() async throws -> Bool {
-        try await store.requestFullAccessToReminders()
+        try await withCheckedThrowingContinuation { continuation in
+            store.requestFullAccessToReminders { granted, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+            }
+        }
     }
 
     func lists() async throws -> [ReminderListInfo] {

@@ -13,8 +13,13 @@ actor CNContactsStore: ContactsStore {
         SystemPermissionChecker().state(of: .contacts)
     }
 
+    /// Uses the completion handler form. The async form sends the store out of this actor, which Swift 6.1 rejects.
     func requestAccess() async throws -> Bool {
-        try await store.requestAccess(for: .contacts)
+        try await withCheckedThrowingContinuation { continuation in
+            store.requestAccess(for: .contacts) { granted, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+            }
+        }
     }
 
     /// Keys for search: names, organization, emails and phones.
