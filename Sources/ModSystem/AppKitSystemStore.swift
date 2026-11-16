@@ -2,6 +2,7 @@
 #if os(macOS)
 import AppKit
 import AppleSauceCore
+import CoreServices
 import Foundation
 import UserNotifications
 
@@ -62,7 +63,10 @@ actor AppKitSystemStore: SystemStore {
 
     // The completion handler forms keep non-Sendable notification objects out of the async boundaries.
     private static func permission() async throws -> Bool {
-        try await withCheckedThrowingContinuation { continuation in
+        // macOS only lets a registered app ask. npm and Claude desktop install into folders it does not scan,
+        // so the app registers itself. Doing it again is harmless.
+        _ = LSRegisterURL(Bundle.main.bundleURL as CFURL, true)
+        return try await withCheckedThrowingContinuation { continuation in
             UNUserNotificationCenter.current().getNotificationSettings { settings in
                 switch settings.authorizationStatus {
                 case .authorized, .provisional:
