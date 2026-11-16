@@ -61,13 +61,17 @@ import Testing
         #expect(
             notes.tools.map(\.tool.name) == [
                 "list_folders", "search_notes", "get_note", "get_note_attachment", "create_note", "append_to_note",
-                "move_note", "delete_note",
+                "update_note", "create_folder", "move_note", "delete_note",
             ])
         #expect(
             notes.tools.filter(\.isWrite).map(\.tool.name) == [
-                "get_note_attachment", "create_note", "append_to_note", "move_note", "delete_note",
+                "get_note_attachment", "create_note", "append_to_note", "update_note", "create_folder", "move_note",
+                "delete_note",
             ])
-        #expect(notes.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name) == ["delete_note"])
+        #expect(
+            notes.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name) == [
+                "update_note", "delete_note",
+            ])
         #expect(notes.name == "notes")
         #expect(notes.permissions == [.automationNotes])
     }
@@ -77,9 +81,12 @@ import Testing
         let fake = store()
         let registry = try Registry(available: [module(fake)], config: config)
         #expect(registry.tools.map(\.name) == ["list_folders", "search_notes", "get_note"])
-        for tool in ["create_note", "append_to_note", "move_note", "delete_note"] {
+        for tool in ["create_note", "append_to_note", "update_note", "create_folder", "move_note", "delete_note"] {
             let result = await registry.call(
-                tool, arguments: ["id": .string(Self.noteID), "title": "t", "text": "t", "folder": "Work"])
+                tool,
+                arguments: [
+                    "id": .string(Self.noteID), "title": "t", "text": "t", "folder": "Work", "name": "n",
+                ])
             #expect(result.isError == true, "\(tool)")
         }
         #expect(fake.read(\.calls).isEmpty)
@@ -121,6 +128,23 @@ import Testing
             ("move_note", ["id": "nope", "folder": "Work"]),
             ("delete_note", [:]),
             ("delete_note", ["id": "123"]),
+            ("update_note", [:]),
+            ("update_note", ["id": id]),
+            ("update_note", ["title": "x"]),
+            ("update_note", ["id": "nope", "title": "x"]),
+            ("update_note", ["id": id, "title": ""]),
+            ("update_note", ["id": id, "title": "  "]),
+            ("update_note", ["id": id, "title": 5]),
+            ("update_note", ["id": id, "body": 5]),
+            ("update_note", ["id": id, "body": "a\0b"]),
+            ("update_note", ["id": id, "title": "a\0b"]),
+            ("create_folder", [:]),
+            ("create_folder", ["name": ""]),
+            ("create_folder", ["name": "a\nb"]),
+            ("create_folder", ["name": 5]),
+            ("create_folder", ["name": "a\0b"]),
+            ("create_folder", ["name": "x", "parent": ""]),
+            ("create_folder", ["name": "x", "account": ""]),
         ]
         for (tool, args) in bad {
             let error = await failure(tool, args, on: fake)
@@ -136,6 +160,8 @@ import Testing
         #expect(create?.code == .invalidInput)
         let append = await failure("append_to_note", ["id": .string(Self.noteID), "text": .string(long)], on: fake)
         #expect(append?.code == .invalidInput)
+        let update = await failure("update_note", ["id": .string(Self.noteID), "body": .string(long)], on: fake)
+        #expect(update?.code == .invalidInput)
         #expect(fake.read(\.calls).isEmpty)
     }
 

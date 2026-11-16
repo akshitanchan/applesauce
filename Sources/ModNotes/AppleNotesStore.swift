@@ -86,6 +86,19 @@ struct AppleNotesStore: NotesStore {
         try ref(try await NotesScripts.run(NotesScripts.append, [id, html], timeout: writeTimeout))
     }
 
+    func replaceBody(id: String, html: String) async throws -> NoteRef {
+        try ref(try await NotesScripts.run(NotesScripts.replace, [id, html], timeout: writeTimeout))
+    }
+
+    func createFolder(name: String, parentId: String?, account: String?) async throws -> NotesFolder {
+        let text = try await NotesScripts.run(
+            NotesScripts.createFolder,
+            NotesScripts.createFolderArguments(name: name, parentId: parentId, account: account),
+            timeout: writeTimeout)
+        guard let folder = NotesScripts.parseFolders(text).first else { throw Self.unreadable() }
+        return folder
+    }
+
     func move(id: String, folderId: String) async throws -> NoteRef {
         try ref(try await NotesScripts.run(NotesScripts.move, [id, folderId], timeout: writeTimeout))
     }

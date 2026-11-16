@@ -103,6 +103,27 @@ public struct NotesModule: Module {
                 properties: ["id": Self.idProperty, "text": Self.property("string", "Plain text to add.")],
                 required: ["id", "text"], write: true),
             ToolSpec(
+                name: "update_note",
+                description:
+                    "Change the title or the plain text body of a note. Give 'title', 'body' or both. 'body' replaces the whole body, and the title stays as the first line (a heading). 'title' alone renames the note and keeps the rest. The result has 'previous_title' and 'previous_body' (the old text below the title), so the change can be undone with this tool. Notes writes the whole note again, so rich content (for example a drawing, a table or formatting) can change. Locked notes are not changed.",
+                properties: [
+                    "id": Self.idProperty,
+                    "title": Self.property("string", "New title, on one line."),
+                    "body": Self.property(
+                        "string", "New plain text body. It replaces the whole body. Line breaks are kept."),
+                ],
+                required: ["id"], destructive: true),
+            ToolSpec(
+                name: "create_folder",
+                description:
+                    "Create a Notes folder. Give 'parent' to make it inside another folder. Without 'parent', it goes to the top level of 'account' (default: the default account). A folder with the same name in the same place is refused.",
+                properties: [
+                    "name": Self.property("string", "Name of the new folder, on one line."),
+                    "parent": Self.property("string", "Parent folder name (any case) or id."),
+                    "account": Self.accountProperty,
+                ],
+                required: ["name"], write: true),
+            ToolSpec(
                 name: "move_note",
                 description:
                     "Move a note to a folder. The note id can change after a move. Use the id in the result.",
@@ -131,6 +152,8 @@ public struct NotesModule: Module {
         case "get_note_attachment": return try await getAttachment(args)
         case "create_note": return try await createNote(args)
         case "append_to_note": return try await appendToNote(args)
+        case "update_note": return try await updateNote(args)
+        case "create_folder": return try await createFolder(args)
         case "move_note": return try await moveNote(args)
         case "delete_note": return try await deleteNote(args)
         default:
@@ -163,6 +186,21 @@ public struct NotesModule: Module {
         let notes: [NoteSummary]
         let count: Int
         let truncated: Bool
+    }
+    private struct UpdateResult: Encodable {
+        let action: String
+        let note: NoteRef
+        let previousTitle: String
+        /// The old plain text below the title. Cut at the body limit.
+        let previousBody: String
+        let previousBodyTruncated: Bool
+        /// The old HTML body. Left out when it is longer than the body limit.
+        let previousHtml: String?
+    }
+    private struct FolderResult: Encodable {
+        let action: String
+        let folder: NotesFolder
+        let parent: String?
     }
     private struct ActionResult: Encodable {
         let action: String
@@ -371,6 +409,76 @@ public struct NotesModule: Module {
         return try ToolOutput(
             text: "Added text to note '\(note.name)'.\nid: \(note.id)",
             payload: ActionResult(action: "append_to_note", note: note, movedTo: nil))
+    }
+
+    private func updateNote(_ args: Arguments) async throws -> ToolOutput {
+        let id = try noteID(args)
+        let title = try trimmed(args, "title")
+        // An empty body is allowed: it clears the body and keeps the title.
+        let body = try freeText(args, "body", required: false)
+        guard title != nil || body != nil else {
+            throw ToolError(
+                .invalidInput, "Give 'title', 'body' or both. There is nothing to change.",
+                fix: "Add the new title or the new body.")
+        }
+        if let body { try NotesHTML.checkSize(NotesHTML.noteBody(title: title ?? "", body: body)) }
+
+        // The old note is read first: it gives the title for a body change, the HTML for a rename, and the undo data.
+        let before = try await backend { try await $0.note(id: id, includeHTML: true) }
+        let html: String
+        if let body {
+            html = NotesHTML.noteBody(title: title ?? before.name, body: body)
+        } else if let title, let renamed = NotesHTML.replacingTitle(in: before.html ?? "", with: title) {
+            html = renamed
+        } else {
+            throw ToolError(
+                .invalidInput,
+                "applesauce cannot find the title line in the HTML of this note, so it cannot rename it.",
+                fix: "Give 'body' too, to replace the whole note, or rename the note in Notes.")
+        }
+        try NotesHTML.checkSize(html)
+        let note = try await backend(seconds: writeTimeout) { try await $0.replaceBody(id: id, html: html) }
+
+        let previousBody = NotesHTML.bodyWithoutTitle(before.body, title: before.name)
+        let previousHtml = (before.html?.count ?? 0) <= NotesScripts.bodyLimit ? before.html : nil
+        var lines = ["Updated note '\(note.name.isEmpty ? before.name : note.name)'."]
+        if let title { lines.append("Title: '\(before.name)' became '\(title)'.") }
+        if body != nil { lines.append("The body was replaced. The old text is in 'previous_body'.") }
+        if before.truncated { lines.append("The old text was cut at \(NotesScripts.bodyLimit) characters.") }
+        lines.append("id: \(note.id)")
+        return try ToolOutput(
+            text: lines.joined(separator: "\n"),
+            payload: UpdateResult(
+                action: "update_note", note: note, previousTitle: before.name, previousBody: previousBody,
+                previousBodyTruncated: before.truncated, previousHtml: previousHtml))
+    }
+
+    private func createFolder(_ args: Arguments) async throws -> ToolOutput {
+        let name = try required(args, "name")
+        guard !name.contains(where: \.isNewline) else {
+            throw ToolError.invalidInput("'name' must be on one line.")
+        }
+        let parentQuery = try trimmed(args, "parent")
+        let accountQuery = try trimmed(args, "account")
+        var parent: NotesFolder?
+        var account: String?
+        if parentQuery != nil || accountQuery != nil {
+            let folders = try await backend { try await $0.folders() }
+            account = try accountQuery.map { try Self.resolveAccount($0, in: folders) }
+            if let parentQuery {
+                parent = try Self.resolveFolder(parentQuery, account: account, in: folders)
+                account = parent?.account
+            }
+        }
+        let parentId = parent?.id
+        let wanted = account
+        let folder = try await backend(seconds: writeTimeout) {
+            try await $0.createFolder(name: name, parentId: parentId, account: wanted)
+        }
+        let place = parent.map { " inside '\($0.name)'" } ?? ""
+        return try ToolOutput(
+            text: "Created folder '\(folder.name)'\(place) in \(folder.account).\nid: \(folder.id)",
+            payload: FolderResult(action: "create_folder", folder: folder, parent: parent?.name))
     }
 
     private func moveNote(_ args: Arguments) async throws -> ToolOutput {
