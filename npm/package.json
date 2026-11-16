@@ -1,6 +1,6 @@
 {
   "name": "applesauce",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "mcpName": "com.akshitanchan/applesauce",
   "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts, Shortcuts, Spotlight and more on macOS. A native Swift binary.",
   "license": "MIT",
