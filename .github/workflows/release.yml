@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: write # create the GitHub release
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing (OIDC), which also signs the provenance
 
 jobs:
   release:
@@ -19,8 +19,14 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later. npm 12 has breaking changes, so stay on 11.
+      - name: Update npm
+        run: |
+          npm install -g npm@11
+          npm --version
 
       - name: Check versions and tag
         run: |
@@ -30,9 +36,8 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match version $version." >&2
             exit 1
           fi
-          # npm/package.json carries TODO placeholders until the GitHub repository exists.
           if grep -q TODO npm/package.json; then
-            echo "npm/package.json still has TODO placeholders. Fill in repository, homepage and bugs." >&2
+            echo "npm/package.json still has TODO placeholders." >&2
             exit 1
           fi
 
@@ -82,18 +87,13 @@ jobs:
               ${flags[@]+"${flags[@]}"}
           fi
 
-      # If npm refuses the name "applesauce" at the first publish, rename the package to
-      # "applesauce-mcp" in npm/package.json and in scripts/pack-npm.sh (the tarball name).
+      # Trusted publishing: npm checks this repository and workflow through OIDC. No token is stored.
+      # The trusted publisher on npmjs.com must name akshitanchan/applesauce and release.yml.
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          REPO_PRIVATE: ${{ github.event.repository.private }}
         run: |
           version="$(scripts/version.sh)"
           flags=(--access public)
           # npm refuses a prerelease without an explicit tag.
           if [[ "$version" == *-* ]]; then flags+=(--tag next); fi
-          # npm provenance works only for a public repository.
-          if [[ "$REPO_PRIVATE" == "false" ]]; then flags+=(--provenance); fi
           # The ./ keeps npm from reading the path as a GitHub user/repo shorthand.
           npm publish "./dist/applesauce-$version.tgz" "${flags[@]}"
