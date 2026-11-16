@@ -6,6 +6,7 @@ WORKDIR /src
 COPY . .
 RUN swift build -c release --product applesauce --static-swift-stdlib
 
-FROM ubuntu:24.04
+# The slim Swift image has the system libraries Foundation needs on Linux (libcurl, libxml2).
+FROM swift:6.1-noble-slim
 COPY --from=build /src/.build/release/applesauce /usr/local/bin/applesauce
 ENTRYPOINT ["applesauce"]
