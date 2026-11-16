@@ -159,7 +159,15 @@ private final class ProcessJob: @unchecked Sendable {
             if stderr.count < stderrLimit { stderr.append(chunk.prefix(stderrLimit - stderr.count)) }
             lock.unlock()
         }
-        process.terminationHandler = { _ in group.leave() }
+        process.terminationHandler = { [self] _ in
+            group.leave()
+            // A child of the program can keep a pipe open after the program exits. Give the reads 3 seconds, then answer.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { [self] in
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                errPipe.fileHandleForReading.readabilityHandler = nil
+                finish()
+            }
+        }
 
         lock.lock()
         let skip = cancelledEarly
@@ -205,7 +213,7 @@ private final class ProcessJob: @unchecked Sendable {
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [self] in
             terminate(.timeout)
         }
-        // A child of the program can keep a pipe open after the program exits. Do not wait for it forever.
+        // The program may not exit even after SIGKILL is sent. Do not wait for it forever.
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 3) { [self] in
             lock.lock()
             let reason = stop
@@ -216,17 +224,20 @@ private final class ProcessJob: @unchecked Sendable {
             complete(.failure(limitFailure(reason) ?? CancellationError()))
         }
 
-        group.notify(queue: .global()) { [self] in
-            lock.lock()
-            let reason = stop
-            let result = ProcessResult(
-                stdout: stdout, stderr: stderr, status: process.terminationStatus, truncated: truncated)
-            lock.unlock()
-            if let failure = limitFailure(reason) {
-                complete(.failure(failure))
-            } else {
-                complete(.success(result))
-            }
+        group.notify(queue: .global()) { [self] in finish() }
+    }
+
+    /// Answers with what was read, or with the reason the program was stopped.
+    private func finish() {
+        lock.lock()
+        let reason = stop
+        let result = ProcessResult(
+            stdout: stdout, stderr: stderr, status: process.terminationStatus, truncated: truncated)
+        lock.unlock()
+        if let failure = limitFailure(reason) {
+            complete(.failure(failure))
+        } else {
+            complete(.success(result))
         }
     }
 

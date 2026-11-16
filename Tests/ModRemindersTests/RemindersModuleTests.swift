@@ -222,7 +222,9 @@ import Testing
         }
         let output = try await run("list_reminders", ["limit": 2], on: fake)
         #expect(output.text.hasPrefix("Showing 2 of 3 reminders."))
-        #expect(output.text.contains("[ ] One | due 2026-11-12T09:30:00+01:00 | Shopping | id: r1"))
+        // Due dates show in the local time zone.
+        let oneDue = ISODate.string(due("2026-11-12T09:30:00+01:00").date)
+        #expect(output.text.contains("[ ] One | due \(oneDue) | Shopping | id: r1"))
         #expect(output.text.contains("priority high"))
         let root = try #require(output.structured?.objectValue)
         #expect(root["total"]?.intValue == 3)

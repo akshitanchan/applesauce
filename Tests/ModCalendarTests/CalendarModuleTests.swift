@@ -219,7 +219,8 @@ import Testing
     }
 
     @Test func recurringIdAndSpanReachTheStore() async throws {
-        let id = "R1@2026-11-19T09:00:00+01:00"
+        // The id text uses the local time zone, so build it the same way.
+        let id = EventRef(identifier: "R1", occurrence: date("2026-11-19T09:00:00+01:00")).string
         let event = eventInfo(
             id, "Standup", start: "2026-11-19T09:00:00+01:00", end: "2026-11-19T09:15:00+01:00", recurring: true)
         let fake = store { $0.events = [event] }
@@ -317,7 +318,8 @@ import Testing
     }
 
     @Test func deletingAllLaterOccurrencesNeedsConfirm() async throws {
-        let id = "R1@2026-11-19T09:00:00+01:00"
+        // The id text uses the local time zone, so build it the same way.
+        let id = EventRef(identifier: "R1", occurrence: date("2026-11-19T09:00:00+01:00")).string
         let event = eventInfo(
             id, "Standup", start: "2026-11-19T09:00:00+01:00", end: "2026-11-19T09:15:00+01:00", recurring: true)
         let fake = store { $0.events = [event] }

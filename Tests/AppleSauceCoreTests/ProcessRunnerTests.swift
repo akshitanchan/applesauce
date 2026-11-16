@@ -70,11 +70,21 @@ import Testing
     @Test func stopAtOutputLimitEndsAProgramThatKeepsRunning() async throws {
         let started = Date()
         let result = try await runProcess(
-            executable: "/bin/sh", arguments: ["-c", "printf 'aaaaaaaaaa'; printf 'bbbbbbbbbb'; sleep 30"], timeout: 20,
-            outputLimit: 15, stopAtOutputLimit: true)
+            executable: "/bin/sh", arguments: ["-c", "printf 'aaaaaaaaaa'; printf 'bbbbbbbbbb'; sleep 30 & wait"],
+            timeout: 20, outputLimit: 15, stopAtOutputLimit: true)
+        // The background sleep keeps the pipe open after sh ends. The runner must not wait for it.
         #expect(Date().timeIntervalSince(started) < 10)
         #expect(result.truncated)
         #expect(result.stdout.count <= 15)
+    }
+
+    @Test func aChildThatKeepsThePipeOpenDoesNotBlockTheAnswer() async throws {
+        let started = Date()
+        let result = try await runProcess(
+            executable: "/bin/sh", arguments: ["-c", "printf done; sleep 30 &"], timeout: 20)
+        #expect(Date().timeIntervalSince(started) < 10)
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "done")
+        #expect(result.status == 0)
     }
 
     @Test func stopAtOutputLimitIsQuietWhenOutputIsSmall() async throws {
