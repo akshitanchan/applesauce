@@ -70,6 +70,9 @@ import Testing
 
     @Test func subjectKeepsMailsPrefix() throws {
         #expect(try search { $0.subject = "Other" }.items.first?.subject == "Fwd: Other account")
+        // A search that includes the prefix finds the message too.
+        #expect(try search { $0.subject = "fwd: other" }.items.first?.id == "4")
+        #expect(try search { $0.text = "Fwd: Other" }.items.first?.id == "4")
         #expect(try search { $0.text = "Lunch" }.items.first?.subject == "Lunch tomorrow")
         var options = MailFixture.Options()
         options.messageColumns = options.messageColumns.replacingOccurrences(of: ", subject_prefix TEXT", with: "")

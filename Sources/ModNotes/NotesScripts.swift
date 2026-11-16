@@ -27,11 +27,11 @@ enum NotesScripts {
 
     /// Handlers that every script uses.
     ///
-    /// Checked in the Notes dictionary (`sdef`) and with `osacompile`, not run: `folder`, `note`, `account`,
-    /// `plaintext`, `body`, `password protected`, `default folder`, `container` (an account or a folder for a folder).
-    /// TODO(verify): `folders of <account>` and `folders of <folder>` list the nested folders. The code reads both levels
-    /// and skips ids it has seen, so it works if the first call already lists nested folders too.
+    /// Run against a real Notes: `folders of <account>` lists top-level folders and `folders of <folder>` the
+    /// nested ones. The walk reads both levels and skips ids it has seen.
     /// `note id <text>` finds a note by the id text that `id of note` gives.
+    /// A note in a nested folder has no `container` (Notes answers -1728, or `missing value` in a bulk read),
+    /// so its folder is found through each folder's note ids instead.
     static let prelude = """
         property fs : character id 31
         property rs : character id 30
@@ -155,10 +155,48 @@ enum NotesScripts {
             if isLocked then my failWith(1002, "The note is locked (password protected).")
         end failIfLocked
 
+        -- The note ids of every folder, read once: one event for each folder.
+        -- Notes gives no container for a note in a nested folder, so this is how such a note finds its folder.
+        on folderNoteIds(table)
+            script idTable
+                property noteIdLists : {}
+            end script
+            repeat with fldId in table's folderIds
+                set fldNotes to {}
+                try
+                    tell application "Notes" to set fldNotes to id of notes of folder id (contents of fldId)
+                end try
+                set end of idTable's noteIdLists to fldNotes
+            end repeat
+            return idTable
+        end folderNoteIds
+
+        -- {folder name, account name} for a note id from folderNoteIds, or {"", ""}.
+        on placeFromLists(noteId, table, idTable)
+            repeat with i from 1 to count of table's folderIds
+                if (item i of idTable's noteIdLists) contains noteId then
+                    return {item i of table's folderNames, item i of table's folderAccts}
+                end if
+            end repeat
+            return {"", ""}
+        end placeFromLists
+
         -- {folder name, account name} of a note, or of a folder (then the folder is its own place).
         on placeOf(item_)
+            tell application "Notes" to set isFolder to (class of item_) is folder
+            if not isFolder then
+                try
+                    tell application "Notes" to set probe to container of item_
+                on error errMsg number errNum
+                    if errNum is not -1728 then error errMsg number errNum
+                    -- A note in a nested folder has no container. Find its folder by its id.
+                    set table to my folderTable()
+                    tell application "Notes" to set noteId to id of item_
+                    return my placeFromLists(noteId, table, my folderNoteIds(table))
+                end try
+            end if
             tell application "Notes"
-                if (class of item_) is folder then
+                if isFolder then
                     set holder to item_
                 else
                     set holder to container of item_
@@ -192,17 +230,26 @@ enum NotesScripts {
 
             on run argv
                 set table to my folderTable()
+                -- Fast path: count from one bulk read of every note's container.
+                -- A note in a nested folder has no container, so then each folder is counted on its own.
                 tell application "Notes" to set holders to id of container of every note
                 script counted
                     property holderIds : holders
                 end script
+                set exact to counted's holderIds does not contain missing value
                 set out to {}
                 repeat with i from 1 to count of table's folderIds
                     set fldId to item i of table's folderIds
                     set noteCount to 0
-                    repeat with holder in counted's holderIds
-                        if contents of holder is fldId then set noteCount to noteCount + 1
-                    end repeat
+                    if exact then
+                        repeat with holder in counted's holderIds
+                            if contents of holder is fldId then set noteCount to noteCount + 1
+                        end repeat
+                    else
+                        try
+                            tell application "Notes" to set noteCount to count of notes of folder id fldId
+                        end try
+                    end if
                     set end of out to fldId & fs & my clean(item i of table's folderNames) & fs & my clean(item i of table's folderAccts) & fs & (noteCount as text)
                 end repeat
                 return my joinList(out, rs)
@@ -257,6 +304,7 @@ enum NotesScripts {
                     if fixedPlace is missing value then set cols's noteHolders to id of container of scope
                 end tell
                 if fixedPlace is missing value then set table to my folderTable()
+                set noteIdTable to missing value
                 set out to {}
                 repeat with i from 1 to count of cols's noteIds
                     set isLocked to item i of cols's noteLocks
@@ -272,8 +320,16 @@ enum NotesScripts {
                     if matchKind is not "" then
                         if fixedPlace is missing value then
                             set place to {"", ""}
-                            set k to my indexOf(item i of cols's noteHolders, table's folderIds)
-                            if k > 0 then set place to {item k of table's folderNames, item k of table's folderAccts}
+                            set holder to item i of cols's noteHolders
+                            set k to 0
+                            if holder is not missing value then set k to my indexOf(holder, table's folderIds)
+                            if k > 0 then
+                                set place to {item k of table's folderNames, item k of table's folderAccts}
+                            else
+                                -- A note in a nested folder has no container. Read each folder's notes once.
+                                if noteIdTable is missing value then set noteIdTable to my folderNoteIds(table)
+                                set place to my placeFromLists(item i of cols's noteIds, table, noteIdTable)
+                            end if
                         else
                             set place to fixedPlace
                         end if
@@ -384,7 +440,7 @@ enum NotesScripts {
             """
 
     /// argv: note id. Output: one header record, read before the delete.
-    /// TODO(verify): `delete note` moves the note to Recently Deleted.
+    /// `delete note` moves the note to Recently Deleted.
     static let delete =
         prelude + """
 

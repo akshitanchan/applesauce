@@ -103,13 +103,16 @@ struct EnvelopeIndex {
         LEFT JOIN addresses a ON a.ROWID = m.sender
         """
 
+    /// The subject as Mail shows it. Mail keeps "Re: " and "Fwd: " apart from the subject text.
+    private var subjectColumn: String {
+        hasSubjectPrefix ? "(COALESCE(m.subject_prefix, '') || COALESCE(s.subject, ''))" : "s.subject"
+    }
+
     private var summarySelect: String {
         let attachments =
             hasAttachments ? "EXISTS (SELECT 1 FROM attachments t WHERE t.message = m.ROWID)" : "NULL"
-        // Mail keeps "Re: " and "Fwd: " apart from the subject text.
-        let subject = hasSubjectPrefix ? "COALESCE(m.subject_prefix, '') || COALESCE(s.subject, '')" : "s.subject"
         return Self.selectSummary.replacingOccurrences(of: "%@", with: attachments)
-            .replacingOccurrences(of: "%S", with: subject)
+            .replacingOccurrences(of: "%S", with: subjectColumn)
     }
 
     /// `%` and `_` in the user's text must not act as wildcards.
@@ -165,7 +168,7 @@ struct EnvelopeIndex {
             conditions.append("(\(clause))")
         }
         if let text = query.text {
-            conditions.append("(s.subject \(like) OR a.address \(like) OR a.comment \(like))")
+            conditions.append("(\(subjectColumn) \(like) OR a.address \(like) OR a.comment \(like))")
             bindings += Array(repeating: Self.likePattern(text), count: 3)
         }
         if let from = query.from {
@@ -173,7 +176,7 @@ struct EnvelopeIndex {
             bindings += Array(repeating: Self.likePattern(from), count: 2)
         }
         if let subject = query.subject {
-            conditions.append("s.subject \(like)")
+            conditions.append("\(subjectColumn) \(like)")
             bindings.append(Self.likePattern(subject))
         }
         if let to = query.to {

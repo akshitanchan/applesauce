@@ -296,7 +296,7 @@ enum MailScripts {
     /// target account (name or id, or `none` for the account of each message), count,
     /// then for each message: account id, mailbox path, message id. Output: the number of messages changed.
     /// `delete` moves a message out of its mailbox, and Mail gives it a new id.
-    /// TODO(verify): `move msg to mailbox` works across accounts. On Gmail, check if `delete` archives instead of moving to Bin.
+    /// `move msg to mailbox` works across accounts. On Gmail, `delete` moves a message to the Bin, it does not archive.
     static let change =
         prelude + """
 
@@ -338,7 +338,8 @@ enum MailScripts {
     /// argv: mode (`draft` or `send`), subject, body, number of to, cc, bcc addresses, sender address or `none`,
     /// then the addresses. The sender address picks the account that sends.
     /// The message is created without a window, and `send` leaves no window open.
-    /// TODO(verify): `save` puts it in Drafts and leaves no window open.
+    /// `save` puts it in Drafts without a visible window. Mail keeps the hidden message object until it quits,
+    /// and neither `close` nor `delete` removes it, so the script leaves it.
     static let compose =
         prelude + """
 
@@ -377,21 +378,86 @@ enum MailScripts {
             """
 
     /// argv: mode (`draft` or `send`), reply all (`true` or `false`), body, account id, mailbox path, message id.
-    /// TODO(verify): `reply ... opening window false` works, and its content starts with the quoted original text.
+    ///
+    /// Mail's own `reply` command opens a window even with `opening window false`, fills in the quoted text later,
+    /// and often never saves the draft. So the reply is built as a new hidden message instead:
+    /// "Re: " and the subject, the original sender (or, for your own sent message, its recipients), everyone else
+    /// for reply all, your address in that account, and the original text quoted with "> ".
+    /// AppleScript cannot set the In-Reply-To header, so clients thread the reply by its subject.
     static let reply =
         prelude + """
 
 
+            -- Addresses from a list, without your own and without repeats.
+            on others(addresses_, own)
+                set kept to {}
+                repeat with a in addresses_
+                    set address_ to contents of a
+                    if own does not contain address_ and kept does not contain address_ then set end of kept to address_
+                end repeat
+                return kept
+            end others
+
             on run argv
                 set mode to item 1 of argv
+                set replyAll to (item 2 of argv) is "true"
                 set msg to my findMessage(item 4 of argv, item 5 of argv, item 6 of argv)
                 tell application "Mail"
-                    set answer to reply msg opening window false reply to all ((item 2 of argv) is "true")
-                    set quoted to ""
+                    set own to {}
                     try
-                        set quoted to content of answer
+                        set own to email addresses of (account of (mailbox of msg))
                     end try
-                    set content of answer to (item 3 of argv) & return & return & quoted
+                    set originalSubject to subject of msg
+                    set originalSender to sender of msg
+                    set senderAddress to extract address from originalSender
+                    set originalDate to date received of msg
+                    set originalText to content of msg
+                    set toAddresses to address of every to recipient of msg
+                    set ccAddresses to address of every cc recipient of msg
+                end tell
+                -- Send from your address that the original went to, or the account's first address.
+                set fromAddress to ""
+                repeat with a in own
+                    if (toAddresses & ccAddresses & {senderAddress}) contains (contents of a) then
+                        set fromAddress to contents of a
+                        exit repeat
+                    end if
+                end repeat
+                if fromAddress is "" and (count of own) > 0 then set fromAddress to item 1 of own
+                -- A reply to your own sent message goes to its recipients.
+                if own contains senderAddress then
+                    set toList to toAddresses
+                else
+                    set toList to {senderAddress}
+                end if
+                set ccList to {}
+                if replyAll then
+                    set toList to toList & toAddresses
+                    set ccList to ccAddresses
+                end if
+                set toList to my others(toList, own)
+                -- A message you sent only to yourself: reply to yourself.
+                if toList is {} then set toList to my others(toAddresses & {senderAddress}, {})
+                set ccList to my others(ccList, own & toList)
+                set replySubject to originalSubject
+                if replySubject does not start with "Re:" then set replySubject to "Re: " & replySubject
+                if (count of originalText) > 20000 then set originalText to text 1 thru 20000 of originalText
+                set quotedLines to {}
+                repeat with lineText in paragraphs of originalText
+                    set end of quotedLines to "> " & (contents of lineText)
+                end repeat
+                set replyText to (item 3 of argv) & return & return & "On " & (originalDate as text) & ", " & originalSender & " wrote:" & return & my joinList(quotedLines, return)
+                tell application "Mail"
+                    set answer to make new outgoing message with properties {subject:replySubject, content:replyText, visible:false}
+                    if fromAddress is not "" then set sender of answer to fromAddress
+                    tell answer
+                        repeat with address_ in toList
+                            make new to recipient at end of to recipients with properties {address:(contents of address_)}
+                        end repeat
+                        repeat with address_ in ccList
+                            make new cc recipient at end of cc recipients with properties {address:(contents of address_)}
+                        end repeat
+                    end tell
                     if mode is "send" then
                         send answer
                     else
