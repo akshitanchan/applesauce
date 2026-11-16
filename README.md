@@ -149,6 +149,10 @@ Without `confirm: true`, a gated call changes nothing and says why. Your assista
 - Mail and Notes must be running. Mail search with Full Disk Access is the one exception.
 - The Intel slice is built but not tested on Intel hardware.
 
+### Linux and Docker
+
+applesauce needs macOS. The `Dockerfile` builds a Linux image for MCP directories that check servers in Docker. In that image applesauce starts and lists all its tools, and every tool call answers `UNSUPPORTED_PLATFORM`. `doctor` reports each permission as `unsupported`.
+
 ## Build from source
 
 You need Xcode with Swift 6.1 or newer.
