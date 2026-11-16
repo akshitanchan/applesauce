@@ -1,0 +1,98 @@
+name: release
+
+# A tag like v0.1.0 builds, tests and packs applesauce, creates a GitHub release
+# with the .mcpb bundle and the npm tarball, and publishes the npm package.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Check versions and tag
+        run: |
+          scripts/version.sh --check
+          version="$(scripts/version.sh)"
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $version." >&2
+            exit 1
+          fi
+          # npm/package.json carries TODO placeholders until the GitHub repository exists.
+          if grep -q TODO npm/package.json; then
+            echo "npm/package.json still has TODO placeholders. Fill in repository, homepage and bugs." >&2
+            exit 1
+          fi
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Lint
+        run: xcrun swift-format lint --strict -r Sources Tests Package.swift
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal binary
+        run: scripts/build-universal.sh
+
+      - name: Smoke test
+        run: |
+          dist/applesauce --version
+          { printf '%s\n' \
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release","version":"1"}}}' \
+              '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 2; } \
+            | dist/applesauce | tee out.jsonl
+          grep -q '"name":"doctor"' out.jsonl
+
+      - name: Pack npm package
+        run: scripts/pack-npm.sh
+
+      - name: Pack mcpb bundle
+        run: scripts/pack-mcpb.sh
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(scripts/version.sh)"
+          assets=("dist/applesauce-$version.mcpb" "dist/applesauce-$version.tgz")
+          flags=()
+          if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+          # A re-run of the workflow must not fail on a release that exists. It replaces the assets.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --title "applesauce $version" \
+              --generate-notes \
+              ${flags[@]+"${flags[@]}"}
+          fi
+
+      # If npm refuses the name "applesauce" at the first publish, rename the package to
+      # "applesauce-mcp" in npm/package.json and in scripts/pack-npm.sh (the tarball name).
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          version="$(scripts/version.sh)"
+          flags=(--access public)
+          # npm refuses a prerelease without an explicit tag.
+          if [[ "$version" == *-* ]]; then flags+=(--tag next); fi
+          # npm provenance works only for a public repository.
+          if [[ "$REPO_PRIVATE" == "false" ]]; then flags+=(--provenance); fi
+          npm publish "dist/applesauce-$version.tgz" "${flags[@]}"

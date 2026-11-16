@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version check
+        run: scripts/version.sh --check
+      - name: Swift version
+        run: swift --version
+      - name: Lint
+        run: xcrun swift-format lint --strict -r Sources Tests Package.swift
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Smoke test
+        run: |
+          scripts/sign.sh .build/debug/applesauce
+          .build/debug/applesauce --version
+          { printf '%s\n' \
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+              '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 2; } \
+            | .build/debug/applesauce | tee out.jsonl
+          grep -q '"name":"doctor"' out.jsonl

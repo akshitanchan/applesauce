@@ -1,0 +1,253 @@
+{
+  "manifest_version": "0.3",
+  "name": "applesauce",
+  "display_name": "applesauce",
+  "version": "0.1.0",
+  "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts, Shortcuts, Spotlight and System on your Mac.",
+  "long_description": "applesauce is a native macOS program. It lets your AI assistant read and change your Calendar, Reminders, Mail, Notes and Contacts, run Shortcuts, search files with Spotlight, and use the clipboard and notifications. macOS asks for permission the first time each app is used. The bundle is ad-hoc signed, so macOS asks again after each update. Ask Claude to run the doctor tool to see each permission and how to fix it.",
+  "author": {
+    "name": "Akshit Anchan"
+  },
+  "icon": "icon-dark.png",
+  "icons": [
+    {
+      "src": "icon-dark.png",
+      "size": "512x512",
+      "theme": "light"
+    },
+    {
+      "src": "icon.png",
+      "size": "512x512",
+      "theme": "dark"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "apple",
+    "macos",
+    "calendar",
+    "reminders",
+    "mail",
+    "notes",
+    "contacts",
+    "shortcuts",
+    "spotlight"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ]
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/applesauce",
+    "mcp_config": {
+      "command": "${__dirname}/server/applesauce",
+      "args": [
+        "serve"
+      ],
+      "env": {
+        "APPLESAUCE_READ_ONLY": "${user_config.read_only}",
+        "APPLESAUCE_MODULES": "${user_config.modules}",
+        "APPLESAUCE_DISABLE": "${user_config.disable}"
+      }
+    }
+  },
+  "user_config": {
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-only mode",
+      "description": "Hide every tool that changes data. Your assistant can then only read.",
+      "default": false
+    },
+    "modules": {
+      "type": "string",
+      "title": "Only these modules",
+      "description": "Optional. Comma-separated list. Leave empty for all modules. Names: calendar, reminders, mail, notes, contacts, shortcuts, spotlight, system.",
+      "default": ""
+    },
+    "disable": {
+      "type": "string",
+      "title": "Turn off these modules",
+      "description": "Optional. Comma-separated list of modules to turn off, for example mail,notes. Leave empty to turn none off.",
+      "default": ""
+    }
+  },
+  "tools": [
+    {
+      "name": "doctor",
+      "description": "Show the applesauce version, enabled modules, and the state of each macOS permission, with the exact step that fixes a missing one. Use it first when a tool fails with PERMISSION_DENIED."
+    },
+    {
+      "name": "list_calendars",
+      "description": "List all calendars with their id, type, source and whether they allow changes."
+    },
+    {
+      "name": "list_events",
+      "description": "List events between start and end, sorted by start time, from one calendar or all. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. A date-only end includes that whole day. The range is at most 366 days."
+    },
+    {
+      "name": "search_events",
+      "description": "Find events whose title, location or notes contain the query (ignores case). Without start and end it looks 30 days back and 30 days ahead. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. The range is at most 366 days."
+    },
+    {
+      "name": "get_event",
+      "description": "Get one event with all its details. Dates are returned in ISO 8601 with an offset."
+    },
+    {
+      "name": "create_event",
+      "description": "Create an event. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. With date-only start and end, or all_day true, it is an all-day event and end is the last day."
+    },
+    {
+      "name": "update_event",
+      "description": "Change fields of an event. Send only the fields to change. An empty string clears location, notes or url. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
+    },
+    {
+      "name": "delete_event",
+      "description": "Delete an event. For a recurring event, span chooses one occurrence or all later ones."
+    },
+    {
+      "name": "list_reminder_lists",
+      "description": "List all reminder lists with their id, source and whether they allow changes."
+    },
+    {
+      "name": "list_reminders",
+      "description": "List reminders, sorted by due date, from one list or all. By default only incomplete ones. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. A date-only due_end includes that whole day. Reminders without a due date are left out when a due range is given."
+    },
+    {
+      "name": "search_reminders",
+      "description": "Find reminders whose title or notes contain the query (ignores case), in all lists, complete and incomplete."
+    },
+    {
+      "name": "get_reminder",
+      "description": "Get one reminder with all its details. Dates are returned in ISO 8601 with an offset."
+    },
+    {
+      "name": "create_reminder",
+      "description": "Create a reminder. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00. A date-only due has a day but no time."
+    },
+    {
+      "name": "update_reminder",
+      "description": "Change fields of a reminder. Send only the fields to change. An empty string clears due, notes or url. The due date is ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
+    },
+    {
+      "name": "complete_reminder",
+      "description": "Mark a reminder as completed, or as not completed with completed set to false."
+    },
+    {
+      "name": "delete_reminder",
+      "description": "Delete a reminder."
+    },
+    {
+      "name": "list_accounts",
+      "description": "List the mail accounts with their id, name and email addresses."
+    },
+    {
+      "name": "list_mailboxes",
+      "description": "List mailboxes with their path and unread count, for all accounts or one. Gmail labels show as mailboxes."
+    },
+    {
+      "name": "search_mail",
+      "description": "Search mail, newest first. All filters combine. With Full Disk Access the search is fast and covers all mail. Without it, the search is slower, needs 'mailbox', and covers the date range only (default: last 30 days); 'to' and 'has_attachments' do not work then. Dates are ISO 8601, for example 2026-11-12 or 2026-11-12T09:30:00+01:00."
+    },
+    {
+      "name": "get_message",
+      "description": "Get one message: headers, plain text body (cut at 100000 characters) and the names and sizes of attachments. Attachment content is never returned."
+    },
+    {
+      "name": "create_draft",
+      "description": "Save a plain text draft in Mail. Nothing is sent. Mail must be running."
+    },
+    {
+      "name": "send_mail",
+      "description": "Send a plain text email. Without confirm true nothing is sent: the message is saved as a draft. Mail must be running. Sending cannot be undone."
+    },
+    {
+      "name": "reply",
+      "description": "Reply to a message with plain text. Mail adds the quoted original. Without confirm true nothing is sent: the message is saved as a draft. Mail must be running."
+    },
+    {
+      "name": "move_message",
+      "description": "Move messages (at most 100) to a mailbox. Mail must be running."
+    },
+    {
+      "name": "flag_message",
+      "description": "Flag or unflag messages (at most 100). Mail must be running."
+    },
+    {
+      "name": "mark_read",
+      "description": "Mark messages (at most 100) as read or unread. Mail must be running."
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete messages (at most 100). Mail moves them to the Trash mailbox. Mail must be running."
+    },
+    {
+      "name": "list_folders",
+      "description": "List the Notes folders with their account, note count and id."
+    },
+    {
+      "name": "search_notes",
+      "description": "Search notes by title and body text. Title matches come first, then body matches, newest first in each group. The body is searched only when the title matches are fewer than 'limit'. Locked notes can match by title only. Large libraries are slow, so give 'folder' when you can."
+    },
+    {
+      "name": "get_note",
+      "description": "Get one note: name, folder, account, dates and the plain text body (cut at 100000 characters). Locked notes are not read. Attachments are not returned."
+    },
+    {
+      "name": "create_note",
+      "description": "Create a note from plain text. The title becomes the first line (a heading). Notes uses the default folder when 'folder' is not given."
+    },
+    {
+      "name": "append_to_note",
+      "description": "Add plain text as a new paragraph at the end of a note. Notes writes the whole note again, so some rich content (for example a drawing) can change. Locked notes are not changed."
+    },
+    {
+      "name": "move_note",
+      "description": "Move a note to a folder. The note id can change after a move. Use the id in the result."
+    },
+    {
+      "name": "delete_note",
+      "description": "Delete a note. Notes moves it to the Recently Deleted folder, where it stays for 30 days."
+    },
+    {
+      "name": "search_contacts",
+      "description": "Find contacts. The query matches name, organization and email (any case), and phone numbers when the query looks like a phone number. All words of the query must match. Returns name, organization, emails and phones. Use get_contact for the full card. Notes are never returned."
+    },
+    {
+      "name": "get_contact",
+      "description": "Get one contact with all details: name, organization, job title, emails and phones with labels, postal addresses and birthday. Notes are never returned."
+    },
+    {
+      "name": "list_shortcuts",
+      "description": "List the names of the shortcuts in the Shortcuts app, all or from one folder."
+    },
+    {
+      "name": "run_shortcut",
+      "description": "Run a shortcut by name and wait for it (up to 120 seconds). A shortcut can do anything on this Mac, so run only what the user asked for. You can pass text as input. Text output is returned. Other output types are only described by type and size."
+    },
+    {
+      "name": "search_files",
+      "description": "Search files and folders with Spotlight. The query is plain words, like in Spotlight. With 'kind', every word must be in the file name or at the start of a word in the content. Returns path, name, kind, size and modified date. Files that no longer exist are skipped."
+    },
+    {
+      "name": "get_clipboard",
+      "description": "Read the text on the clipboard. Only text is returned. If the clipboard holds something else, for example an image, the answer says so."
+    },
+    {
+      "name": "set_clipboard",
+      "description": "Replace the clipboard with this text."
+    },
+    {
+      "name": "notify",
+      "description": "Show a macOS notification."
+    },
+    {
+      "name": "open",
+      "description": "Open a web page, an email draft or a file in its default app. Give exactly one of 'url' (http, https or mailto) or 'path' (a file or folder that exists)."
+    }
+  ],
+  "tools_generated": false
+}

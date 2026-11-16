@@ -1,0 +1,46 @@
+{
+  "name": "applesauce",
+  "version": "0.1.0",
+  "description": "One MCP server for Calendar, Reminders, Mail, Notes, Contacts, Shortcuts, Spotlight and more on macOS. A native Swift binary.",
+  "license": "MIT",
+  "author": "Akshit Anchan",
+  "bin": {
+    "applesauce": "bin/applesauce"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/applesauce",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "apple",
+    "macos",
+    "calendar",
+    "reminders",
+    "mail",
+    "notes",
+    "contacts",
+    "shortcuts",
+    "spotlight"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "TODO: set to the GitHub repository URL when the repository exists"
+  },
+  "homepage": "TODO: set to the GitHub repository URL when the repository exists",
+  "bugs": {
+    "url": "TODO: set to the GitHub issues URL when the repository exists"
+  }
+}
