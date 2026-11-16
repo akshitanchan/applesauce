@@ -17,6 +17,9 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         var noteRequest: (id: String, includeHTML: Bool)?
         var created: (html: String, folderId: String?, account: String?)?
         var appended: (id: String, html: String)?
+        var replaced: (id: String, html: String)?
+        var createdFolder: (name: String, parentId: String?, account: String?)?
+        var folderResult = NotesFolder(id: "x-coredata://A/ICFolder/p9", name: "New", account: "iCloud", noteCount: 0)
         var moved: (id: String, folderId: String)?
         var deleted: String?
         var delay: Double = 0
@@ -90,6 +93,18 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         write { $0.appended = (id, html) }
         try await enter("append")
         return read(\.ref)
+    }
+
+    func replaceBody(id: String, html: String) async throws -> NoteRef {
+        write { $0.replaced = (id, html) }
+        try await enter("replaceBody")
+        return read(\.ref)
+    }
+
+    func createFolder(name: String, parentId: String?, account: String?) async throws -> NotesFolder {
+        write { $0.createdFolder = (name, parentId, account) }
+        try await enter("createFolder")
+        return read(\.folderResult)
     }
 
     func move(id: String, folderId: String) async throws -> NoteRef {

@@ -20,14 +20,14 @@ applesauce is one small native program, written in Swift. It lets an AI assistan
 
 ## Tools
 
-42 tools in 8 modules, plus `doctor`.
+50 tools in 8 modules, plus `doctor`.
 
 | Module | Tools |
 |---|---|
 | calendar | `list_calendars`, `list_events`, `search_events`, `get_event`, `create_event`, `update_event`, `delete_event` |
 | reminders | `list_reminder_lists`, `create_reminder_list`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder` |
-| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_mail`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
-| notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `move_note`, `delete_note` |
+| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_mail`, `forward_message`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
+| notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `update_note`, `create_folder`, `move_note`, `delete_note` |
 | contacts | `search_contacts`, `get_contact`, `create_contact`, `update_contact` |
 | shortcuts | `list_shortcuts`, `run_shortcut` |
 | spotlight | `search_files` |
@@ -121,7 +121,7 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 ## Safety
 
 - `--read-only` (or the read-only switch in the .mcpb dialog) hides every tool that changes data.
-- `send_mail` and `reply` send nothing unless the call has `confirm: true`. Without it they save a draft.
+- `send_mail`, `forward_message` and `reply` send nothing unless the call has `confirm: true`. Without it they save a draft.
 - Tools that delete, send or move mail are marked `destructiveHint: true`. Most MCP clients ask you before they run them.
 - Tools that only read are marked `readOnlyHint: true`.
 - `run_shortcut` runs a shortcut, and a shortcut can do anything on your Mac. Turn off the `shortcuts` module if you do not want that.
@@ -134,6 +134,7 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 | Action | Undo | Gate |
 |---|---|---|
 | Delete a note | Notes keeps it in Recently Deleted for 30 days. | none |
+| Change the title or the body of a note (`update_note`) | The result has `previous_title` and `previous_body`, so the assistant can set them again. Formatting and rich content can change. | none |
 | Delete up to 10 emails | Mail moves them to the Trash. | none |
 | Delete more than 10 emails, or move them to Trash or Junk | Mail moves them to the Trash or Junk. | `confirm: true` |
 | Delete emails that are already in the Trash | None. The delete is final. | `confirm: true` |
@@ -150,6 +151,8 @@ Without `confirm: true`, a gated call changes nothing and says why. Your assista
 - Images (JPEG, PNG, GIF, WebP) are also returned as an image. HEIC is converted to JPEG. An image above 5 MB is scaled down for the result. The saved file stays as it is.
 - PDF, plain text, RTF, DOC and DOCX files are also returned as text, cut at 100000 characters. A PDF without text (a scan) returns the path only. Other types return the path only.
 - Mail attachments that Mail has not downloaded cannot be saved. Notes cannot save drawings, scans, tables and links. The call then fails with an error.
+- `send_mail`, `create_draft` and `forward_message` can attach files with `attachments`, a list of absolute paths. A file must exist, be a regular file and be readable. The limits are 10 files, 25 MB for each file and 25 MB in all. Folders, app bundles and files in secret folders (`~/.ssh`, `~/Library/Keychains`, `~/.gnupg`, `~/.config/applesauce-mcp` and similar) are refused. Links are followed, and the real path is checked.
+- `forward_message` includes the attachments of the original unless `include_attachments` is false. It copies them to `~/Library/Caches/applesauce/attachments`, where they stay for 24 hours. An attachment that cannot be fetched is skipped and listed in the result.
 - `search_mail` and `flag_message` know the seven flag colors: red, orange, yellow, green, blue, purple and gray.
 
 ## Limits

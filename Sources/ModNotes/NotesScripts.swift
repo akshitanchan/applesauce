@@ -20,6 +20,8 @@ enum NotesScripts {
     /// More than one attachment has the name. Notes could not save an attachment to a file.
     static let ambiguousNumber = 1004
     static let exportNumber = 1006
+    /// A folder with the same name is already there.
+    static let duplicateNumber = 1007
 
     /// Longest plain text body that a tool returns, in characters.
     static let bodyLimit = 100_000
@@ -478,6 +480,64 @@ enum NotesScripts {
             end run
             """
 
+    /// argv: note id, html. Output: one header record. A locked note fails with error 1002.
+    /// It sets the whole `body of note`, so the caller sends the full new HTML (title line included).
+    static let replace =
+        prelude + """
+
+
+            on run argv
+                set nt to my findNote(item 1 of argv)
+                my failIfLocked(nt)
+                tell application "Notes" to set body of nt to (item 2 of argv)
+                return my header(nt)
+            end run
+            """
+
+    /// argv: folder name, parent folder id or `none`, account name or `none`. Output: one folder record
+    /// (id, name, account, note count 0). With a parent, the folder goes inside it. Otherwise it goes to the account
+    /// (or the default account). `folders of <account or folder>` lists the direct children only, so the script
+    /// compares the name with those. AppleScript compares text without regard to case.
+    /// Error numbers: 1001 no such account, 1007 a folder with this name is already there.
+    static let createFolder =
+        prelude + """
+
+
+            on run argv
+                set folderName to item 1 of argv
+                set parentSpec to item 2 of argv
+                set acctSpec to item 3 of argv
+                if parentSpec is not "\(none)" then
+                    set holder to my findFolder(parentSpec)
+                    set acctName to item 2 of my placeOf(holder)
+                else
+                    try
+                        tell application "Notes"
+                            if acctSpec is not "\(none)" then
+                                set holder to account acctSpec
+                            else
+                                set holder to default account
+                            end if
+                            set acctName to name of holder
+                        end tell
+                    on error errMsg number errNum
+                        if errNum is -1728 or errNum is -1719 then my failWith(1001, "No account '" & acctSpec & "'.")
+                        error errMsg number errNum
+                    end try
+                end if
+                tell application "Notes" to set siblingNames to name of folders of holder
+                repeat with siblingName in siblingNames
+                    if (contents of siblingName) is folderName then my failWith(1007, "A folder named '" & folderName & "' is already there.")
+                end repeat
+                tell application "Notes"
+                    set newFolder to make new folder at holder with properties {name:folderName}
+                    set newId to id of newFolder
+                    set newName to name of newFolder
+                end tell
+                return newId & fs & my clean(newName) & fs & my clean(acctName) & fs & "0"
+            end run
+            """
+
     /// argv: note id, folder id. Output: one header record.
     /// `move` returns nothing, and the note keeps its id, so the note is found again by that id.
     /// If the new header cannot be read, the old id and the folder name are returned.
@@ -558,6 +618,10 @@ enum NotesScripts {
             return lockedError()
         case ambiguousNumber:
             return ToolError(.ambiguous, message, fix: "Give 'index' instead of 'name'.")
+        case duplicateNumber:
+            return ToolError(
+                .invalidInput, message,
+                fix: "Use another name, or use the folder that exists. list_folders shows its id.")
         case exportNumber:
             return ToolError(
                 .invalidInput, message,
@@ -580,7 +644,7 @@ enum NotesScripts {
     static func cleanMessage(_ text: String) -> String {
         var message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = message.range(of: "execution error: ") { message = String(message[range.upperBound...]) }
-        if let match = message.firstMatch(of: #/\s*\((1001|1002|1004|1006)\)\s*$/#) {
+        if let match = message.firstMatch(of: #/\s*\((1001|1002|1004|1006|1007)\)\s*$/#) {
             message = String(message[..<match.range.lowerBound])
         }
         return message
@@ -605,6 +669,10 @@ enum NotesScripts {
 
     static func createArguments(html: String, folderId: String?, account: String?) -> [String] {
         [html, folderId ?? none, account ?? none]
+    }
+
+    static func createFolderArguments(name: String, parentId: String?, account: String?) -> [String] {
+        [name, parentId ?? none, account ?? none]
     }
 
     // MARK: output

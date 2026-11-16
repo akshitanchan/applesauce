@@ -173,11 +173,15 @@
     },
     {
       "name": "create_draft",
-      "description": "Save a plain text draft in Mail. Nothing is sent. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
+      "description": "Save a plain text draft in Mail, with files attached when attachments is given. Nothing is sent. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
     },
     {
       "name": "send_mail",
-      "description": "Send a plain text email. Without confirm true nothing is sent: the message is saved as a draft. If Mail is not running, applesauce opens it hidden in the background and leaves it open. Sending cannot be undone."
+      "description": "Send a plain text email, with files attached when attachments is given. Without confirm true nothing is sent: the message is saved as a draft. If Mail is not running, applesauce opens it hidden in the background and leaves it open. Sending cannot be undone."
+    },
+    {
+      "name": "forward_message",
+      "description": "Forward a message as plain text, with its attachments unless include_attachments is false. The subject is Fwd: and the original subject, followed by your text, a header block and the original text. Without confirm true nothing is sent: the message is saved as a draft. If Mail is not running, applesauce opens it hidden in the background and leaves it open. Sending cannot be undone."
     },
     {
       "name": "reply",
@@ -222,6 +226,14 @@
     {
       "name": "append_to_note",
       "description": "Add plain text as a new paragraph at the end of a note. Notes writes the whole note again, so some rich content (for example a drawing) can change. Locked notes are not changed."
+    },
+    {
+      "name": "update_note",
+      "description": "Change the title or the plain text body of a note. Give title, body or both. body replaces the whole body, and the title stays as the first line. title alone renames the note. The result has previous_title and previous_body, so the change can be undone. Notes writes the whole note again, so rich content can change. Locked notes are not changed."
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a Notes folder. Give parent to make it inside another folder. A folder with the same name in the same place is refused."
     },
     {
       "name": "move_note",

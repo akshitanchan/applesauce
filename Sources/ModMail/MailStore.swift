@@ -123,6 +123,8 @@ struct OutgoingMail: Sendable, Equatable {
     var body: String
     /// The sender address. It picks the account that sends. Nil means Mail's default account.
     var from: String? = nil
+    /// Real paths of the files to attach. The module has checked them (see `OutgoingFiles`).
+    var attachments: [String] = []
 }
 
 /// The only way the mail module reaches Mail. The real store reads the Envelope Index and the `.emlx` files,

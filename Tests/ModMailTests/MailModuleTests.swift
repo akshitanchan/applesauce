@@ -57,15 +57,16 @@ import Testing
         #expect(
             mail.tools.map(\.tool.name) == [
                 "list_accounts", "list_mailboxes", "search_mail", "get_message", "get_mail_attachment", "create_draft",
-                "send_mail", "reply", "move_message", "flag_message", "mark_read", "delete_message",
+                "send_mail", "forward_message", "reply", "move_message", "flag_message", "mark_read",
+                "delete_message",
             ])
         #expect(
             Set(mail.tools.filter(\.isWrite).map(\.tool.name)) == [
-                "get_mail_attachment", "create_draft", "send_mail", "reply", "move_message", "flag_message",
-                "mark_read", "delete_message",
+                "get_mail_attachment", "create_draft", "send_mail", "forward_message", "reply", "move_message",
+                "flag_message", "mark_read", "delete_message",
             ])
         let destructive = mail.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name)
-        #expect(Set(destructive) == ["send_mail", "reply", "move_message", "delete_message"])
+        #expect(Set(destructive) == ["send_mail", "forward_message", "reply", "move_message", "delete_message"])
         #expect(mail.name == "mail")
         #expect(mail.permissions == [.automationMail, .fullDiskAccess])
     }
@@ -102,6 +103,16 @@ import Testing
             ("send_mail", ["to": [], "subject": "s", "body": "b"]),
             ("send_mail", ["to": ["bad"], "subject": "s", "body": "b"]),
             ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "confirm": "true"]),
+            ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "attachments": "/tmp/a.txt"]),
+            ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "attachments": ["relative.txt"]]),
+            ("create_draft", ["subject": "s", "body": "b", "attachments": ["~/a.txt"]]),
+            ("forward_message", ["to": ["a@b.c"]]),
+            ("forward_message", ["id": "10"]),
+            ("forward_message", ["id": "10", "to": []]),
+            ("forward_message", ["id": "10", "to": ["bad"]]),
+            ("forward_message", ["id": "x", "to": ["a@b.c"]]),
+            ("forward_message", ["id": "10", "to": ["a@b.c"], "include_attachments": "yes"]),
+            ("forward_message", ["id": "10", "to": ["a@b.c"], "confirm": "true"]),
             ("reply", ["id": "10"]),
             ("reply", ["id": "x", "body": "b"]),
             ("move_message", ["ids": ["10"]]),
@@ -425,6 +436,7 @@ import Testing
     static let writeCalls: [(String, [String: Value])] = [
         ("create_draft", ["subject": "s", "body": "b"]),
         ("send_mail", ["to": ["a@b.c"], "subject": "s", "body": "b", "confirm": true]),
+        ("forward_message", ["id": "10", "to": ["a@b.c"], "include_attachments": false]),
         ("reply", ["id": "10", "body": "b"]),
         ("move_message", ["ids": ["10"], "mailbox": "A"]),
         ("flag_message", ["ids": ["10"], "flagged": true]),

@@ -20,12 +20,19 @@ import Testing
         #expect(NotesScripts.createArguments(html: evil, folderId: nil, account: nil) == [evil, "<none>", "<none>"])
         #expect(NotesScripts.noteArguments(id: "x-coredata://N", includeHTML: true) == ["x-coredata://N", "true"])
         #expect(NotesScripts.search.contains("rm -rf") == false)
+        #expect(
+            NotesScripts.createFolderArguments(name: evil, parentId: "x-coredata://F", account: evil)
+                == [evil, "x-coredata://F", evil])
+        #expect(
+            NotesScripts.createFolderArguments(name: "n", parentId: nil, account: nil) == ["n", "<none>", "<none>"])
+        #expect(NotesScripts.createFolder.contains("rm -rf") == false)
     }
 
     @Test func everyScriptIsBuiltFromConstantsOnly() {
         for script in [
             NotesScripts.folders, NotesScripts.search, NotesScripts.note, NotesScripts.create,
-            NotesScripts.append, NotesScripts.move, NotesScripts.delete,
+            NotesScripts.append, NotesScripts.move, NotesScripts.delete, NotesScripts.replace,
+            NotesScripts.createFolder,
         ] {
             #expect(script.contains("on run argv"))
             // The lookups live in one place.
@@ -61,6 +68,10 @@ import Testing
         let appendLock = NotesScripts.append.range(of: "my failIfLocked(nt)")
         let appendText = NotesScripts.append.range(of: "body of nt")
         #expect(appendLock != nil && appendText != nil && appendLock!.lowerBound < appendText!.lowerBound)
+        // update_note: the same.
+        let replaceLock = NotesScripts.replace.range(of: "my failIfLocked(nt)")
+        let replaceBody = NotesScripts.replace.range(of: "set body of nt")
+        #expect(replaceLock != nil && replaceBody != nil && replaceLock!.lowerBound < replaceBody!.lowerBound)
         // get_note reads every property in one event, then refuses a locked note before it uses any field.
         let note = NotesScripts.note
         let lock = note.range(of: "if isLocked then my failWith(1002")
@@ -75,6 +86,10 @@ import Testing
         let message = NotesScripts.cleanMessage("12:40: execution error: No note with id 'x'. (1001)\n")
         #expect(message == "No note with id 'x'.")
         #expect(NotesScripts.cleanMessage("execution error: Locked. (1002)") == "Locked.")
+        let duplicate = NotesScripts.scriptError(
+            ToolError(.internalError, "1:2: execution error: A folder named 'X' is already there. (1007)"))
+        #expect(duplicate.code == .invalidInput && duplicate.message == "A folder named 'X' is already there.")
+        #expect(duplicate.fix?.isEmpty == false)
         #expect(NotesScripts.lockedError().code == .permissionDenied)
         #expect(NotesScripts.lockedError().message.contains("locked"))
         let timeout = NotesScripts.timeoutError(seconds: 60, search: true)

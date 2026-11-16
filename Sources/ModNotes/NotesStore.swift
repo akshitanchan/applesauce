@@ -92,6 +92,12 @@ protocol NotesStore: Sendable {
     /// `folderId` and `account` are optional. Without both, Notes uses its default folder.
     func create(html: String, folderId: String?, account: String?) async throws -> NoteRef
     func append(id: String, html: String) async throws -> NoteRef
+    /// Replaces the whole body of a note with `html`. It throws `PERMISSION_DENIED` for a locked note.
+    func replaceBody(id: String, html: String) async throws -> NoteRef
+    /// Makes a folder. `parentId` is a folder id, or nil for a top-level folder. `account` is an account name, or nil
+    /// for the parent's account (or the default account). It throws `INVALID_INPUT` when the parent has a folder
+    /// with the same name (any case).
+    func createFolder(name: String, parentId: String?, account: String?) async throws -> NotesFolder
     func move(id: String, folderId: String) async throws -> NoteRef
     func delete(id: String) async throws -> NoteRef
 }
