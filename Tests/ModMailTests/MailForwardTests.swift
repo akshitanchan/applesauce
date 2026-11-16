@@ -185,6 +185,21 @@ import Testing
         #expect(folders.count == 1)
     }
 
+    @Test func aConfirmedForwardThatSkippedAnAttachmentStaysADraft() async throws {
+        defer { cleanUp() }
+        let fake = store {
+            $0.attachmentNames = [2: "chart.png"]
+            $0.attachmentFailures = [
+                1: ToolError(.notFound, "Mail has not downloaded the attachment 'report.pdf' yet.")
+            ]
+        }
+        let output = try await call("forward_message", ["id": "10", "to": ["a@b.c"], "confirm": true], on: fake)
+        #expect(fake.read(\.composed)?.send == false)
+        #expect(object(output)["sent"] == false)
+        #expect(object(output)["draft_saved"] == true)
+        #expect(output.text.contains("Not sent: some attachments could not be included"))
+    }
+
     @Test func anAttachmentAboveTheLimitIsSkipped() async throws {
         defer { cleanUp() }
         let fake = store {

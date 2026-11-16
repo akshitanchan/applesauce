@@ -184,7 +184,7 @@ public struct MailModule: Module {
             ToolSpec(
                 name: "forward_message",
                 description:
-                    "Forward a message as plain text. The new message has the subject 'Fwd: ...', your 'body' (if any), a header block (From, Date, Subject, To) and the original text. The attachments of the original are included unless 'include_attachments' is false. An attachment that cannot be fetched or is above 25 MB is skipped, and the result lists it. 'attachments' adds more files. Forwarded attachments are copied to ~/Library/Caches/applesauce/attachments and kept for 24 hours. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone.",
+                    "Forward a message as plain text. The new message has the subject 'Fwd: ...', your 'body' (if any), a header block (From, Date, Subject, To) and the original text. The attachments of the original are included unless 'include_attachments' is false. An attachment that cannot be fetched or is above 25 MB is skipped, the result lists it, and the forward is saved as a draft even with 'confirm' true. 'attachments' adds more files. Forwarded attachments are copied to ~/Library/Caches/applesauce/attachments and kept for 24 hours. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone.",
                 properties: [
                     "id": Self.property("string", "Message id from search_mail."),
                     "to": recipients("To"), "cc": recipients("Cc"), "bcc": recipients("Bcc"),
@@ -854,23 +854,29 @@ public struct MailModule: Module {
                 fix: "Use a shorter 'body'.")
         }
         let saved = includeAttachments ? try await saveOriginalAttachments(of: original) : (files: [], skipped: [])
+        // A forward that lost an attachment is not what the user agreed to send, so it stays a draft.
+        let sending = confirmed && saved.skipped.isEmpty
         let mail = OutgoingMail(
             to: to, cc: cc, bcc: bcc, subject: Self.forwardSubject(original.subject), body: body, from: sender,
             attachments: saved.files.map(\.file.path) + extra.map(\.path))
-        try await backend(seconds: writeTimeout, onTimeout: confirmed ? Self.sendTimeout : nil) {
-            try await $0.compose(mail, send: confirmed)
+        try await backend(seconds: writeTimeout, onTimeout: sending ? Self.sendTimeout : nil) {
+            try await $0.compose(mail, send: sending)
         }
         let names = saved.files.map(\.name) + extra.map(\.name)
         var summary =
-            confirmed
-            ? "Forwarded message \(id) from \(sender) to \(to.joined(separator: ", "))."
-            : "Not sent: 'confirm' was not true. The forward is saved as a draft in Mail. Call forward_message again with 'confirm' true to send."
+            if sending {
+                "Forwarded message \(id) from \(sender) to \(to.joined(separator: ", "))."
+            } else if confirmed {
+                "Not sent: some attachments could not be included, so the forward is saved as a draft in Mail. Tell the user which ones, and let them send the draft from Mail or call forward_message again with 'include_attachments' false."
+            } else {
+                "Not sent: 'confirm' was not true. The forward is saved as a draft in Mail. Call forward_message again with 'confirm' true to send."
+            }
         summary += Self.attachedText(names)
         if !saved.skipped.isEmpty { summary += " Skipped: \(saved.skipped.joined(separator: "; "))." }
         return try ToolOutput(
             text: summary,
             payload: ActionResult(
-                action: "forward", count: nil, ids: [id], sent: confirmed, draftSaved: !confirmed,
+                action: "forward", count: nil, ids: [id], sent: sending, draftSaved: !sending,
                 attached: names.isEmpty ? nil : names, skipped: saved.skipped.isEmpty ? nil : saved.skipped))
     }
 
