@@ -6,19 +6,19 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-swift build -c release --arch arm64 --arch x86_64
-
-# Older SwiftPM versions fail on --show-bin-path with two archs, so fall back to the folder they use.
-bin_path="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path 2>/dev/null || true)"
-built=""
-found="$(find .build -path '*Products/Release/applesauce' -type f -perm -u+x 2>/dev/null | head -n 1)"
-for candidate in "$bin_path/applesauce" ".build/apple/Products/Release/applesauce" "$found"; do
-  if [[ -n "$candidate" && -x "$candidate" ]]; then built="$candidate"; break; fi
+# Build each arch on its own, then join them. A two-arch `swift build` goes through Xcode's build system,
+# and Swift 6.1 exits with an error there even when the build succeeds.
+# Some Swift versions write both archs to the same folder, so each slice is copied out before the next build.
+mkdir -p dist/slices
+for arch in arm64 x86_64; do
+  swift build -c release --arch "$arch"
+  built="$(swift build -c release --arch "$arch" --show-bin-path)/applesauce"
+  [[ -x "$built" ]] || { echo "build-universal.sh: no $arch binary at $built" >&2; exit 1; }
+  cp "$built" "dist/slices/applesauce-$arch"
+  echo "$arch: $(lipo -archs "dist/slices/applesauce-$arch")"
 done
-[[ -n "$built" ]] || { echo "build-universal.sh: cannot find the built binary" >&2; exit 1; }
-echo "binary: $built"
-mkdir -p dist
-cp "$built" dist/applesauce
+lipo -create dist/slices/applesauce-arm64 dist/slices/applesauce-x86_64 -output dist/applesauce
+rm -rf dist/slices
 scripts/sign.sh dist/applesauce
 
 archs="$(lipo -archs dist/applesauce)"

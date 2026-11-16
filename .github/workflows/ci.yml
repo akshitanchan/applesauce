@@ -32,3 +32,11 @@ jobs:
               '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 2; } \
             | .build/debug/applesauce | tee out.jsonl
           grep -q '"name":"doctor"' out.jsonl
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Release build and packages
+        run: |
+          scripts/build-universal.sh
+          scripts/pack-npm.sh
+          scripts/pack-mcpb.sh
