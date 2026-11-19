@@ -85,6 +85,34 @@ enum NotesScripts {
             return joined
         end joinList
 
+        -- Notes keeps a deleted folder in `folders of <parent>` for some time, but `folder id` no longer finds it.
+        on folderExists(fldId)
+            try
+                tell application "Notes" to set probe to name of folder id fldId
+                return true
+            on error
+                return false
+            end try
+        end folderExists
+
+        -- Ids and names of the folders directly in an account or folder, without deleted folders.
+        on liveChildren(container_)
+            tell application "Notes"
+                set allIds to id of folders of container_
+                if allIds is {} then return {{}, {}}
+                set allNames to name of folders of container_
+            end tell
+            set liveIds to {}
+            set liveNames to {}
+            repeat with i from 1 to count of allIds
+                if my folderExists(item i of allIds) then
+                    set end of liveIds to item i of allIds
+                    set end of liveNames to item i of allNames
+                end if
+            end repeat
+            return {liveIds, liveNames}
+        end liveChildren
+
         -- Every folder, read in bulk: ids, names and account names in three parallel lists.
         -- Nested folders cost one more read for each level.
         on folderTable()
@@ -103,12 +131,11 @@ enum NotesScripts {
         end folderTable
 
         on collectFolders(container_, acctName, table)
-            tell application "Notes"
-                set subIds to id of folders of container_
-                if subIds is {} then return
-                set subNames to name of folders of container_
-                set nestedCount to count of (folders of folders of container_)
-            end tell
+            set children to my liveChildren(container_)
+            set subIds to item 1 of children
+            if subIds is {} then return
+            set subNames to item 2 of children
+            tell application "Notes" to set nestedCount to count of (folders of folders of container_)
             repeat with i from 1 to count of subIds
                 set fldId to item i of subIds
                 if table's folderIds does not contain fldId then
@@ -527,7 +554,7 @@ enum NotesScripts {
                         error errMsg number errNum
                     end try
                 end if
-                tell application "Notes" to set siblingNames to name of folders of holder
+                set siblingNames to item 2 of my liveChildren(holder)
                 repeat with siblingName in siblingNames
                     if (contents of siblingName) is folderName then my failWith(1007, "A folder named '" & folderName & "' is already there.")
                 end repeat
@@ -589,24 +616,24 @@ enum NotesScripts {
                     set fldId to id of fld
                     set fldName to name of fld
                     set noteTotal to count of notes of fld
-                    set subTotal to count of folders of fld
                     set holder to container of fld
                     set isTop to ((class of holder) is account)
                     repeat while (class of holder) is folder
                         set holder to container of holder
                     end repeat
                     set acctName to name of holder
-                    set topTotal to count of folders of holder
                     set defaultId to ""
                     try
                         set defaultId to id of default folder of holder
                     end try
                 end tell
+                set subTotal to count of item 1 of my liveChildren(fld)
+                set topTotal to count of item 1 of my liveChildren(holder)
                 return fldId & fs & my clean(fldName) & fs & my clean(acctName) & fs & (noteTotal as text) & fs & (subTotal as text) & fs & (isTop as text) & fs & ((defaultId is fldId) as text) & fs & (topTotal as text)
             end run
             """
 
-    /// argv: folder id. Output: `ok`. It reads the counts again and stops with error 1008 when the folder holds
+    /// argv: folder id. Output: `ok`, after the folder is gone (or after 5 s). It reads the counts again and stops with error 1008 when the folder holds
     /// a note or a folder, so a note that arrived after the check is never deleted with it.
     static let deleteFolder =
         prelude + """
@@ -614,12 +641,21 @@ enum NotesScripts {
 
             on run argv
                 set fld to my findFolder(item 1 of argv)
-                tell application "Notes"
-                    set noteTotal to count of notes of fld
-                    set subTotal to count of folders of fld
-                end tell
+                tell application "Notes" to set noteTotal to count of notes of fld
+                set subTotal to count of item 1 of my liveChildren(fld)
                 if noteTotal > 0 or subTotal > 0 then my failWith(1008, "The folder holds " & noteTotal & " notes and " & subTotal & " subfolders.")
+                set fldId to id of fld
                 tell application "Notes" to delete fld
+                -- Notes removes the folder a moment later. Wait for it (at most 5 s), so that a delete of the
+                -- parent folder right after this one sees the parent as empty.
+                repeat 20 times
+                    try
+                        tell application "Notes" to set probe to name of folder id fldId
+                    on error
+                        exit repeat
+                    end try
+                    delay 0.25
+                end repeat
                 return "ok"
             end run
             """
