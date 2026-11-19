@@ -446,7 +446,8 @@ enum MailScripts {
     /// argv: mode (`draft` or `send`), subject, body, number of to, cc, bcc addresses, number of attachments,
     /// sender address or `none`, then the addresses, then the attachment file paths (real POSIX paths).
     /// The sender address picks the account that sends.
-    /// The message is created without a window, and `send` leaves no window open.
+    /// The message is created without a window, and `send` leaves no window open. Before `send`, the script saves
+    /// the message once: without that, Mail saves the hidden message after the send and a copy stays in Drafts.
     /// `save` puts it in Drafts without a visible window. Mail keeps the hidden message object until it quits,
     /// and neither `close` nor `delete` removes it, so the script leaves it.
     /// A file is attached with `make new attachment ... at after the last paragraph` of the content (Mail's
@@ -489,6 +490,10 @@ enum MailScripts {
                         set pos to pos + 1
                     end repeat
                     if mode is "send" then
+                        -- Without this save, Mail saves the hidden message a few seconds after the send and
+                        -- leaves a copy in Drafts. After a save, the send removes that draft.
+                        save msg
+                        delay 1
                         send msg
                     else
                         save msg
@@ -580,6 +585,9 @@ enum MailScripts {
                         end repeat
                     end tell
                     if mode is "send" then
+                        -- The same save as in `compose`, so no copy stays in Drafts.
+                        save answer
+                        delay 1
                         send answer
                     else
                         save answer
