@@ -914,7 +914,7 @@ public struct MailModule: Module {
     /// The address a new message comes from. One account with an address: that one, unasked.
     /// More than one: 'from' must name an account or an address, and an account with several addresses is not enough.
     private func senderAddress(_ requested: String?) async throws -> String {
-        let accounts = try await backend { try await $0.accounts() }.filter { !$0.emails.isEmpty }
+        let accounts = try await sendingAccounts()
         let choices = accounts.map { "'\($0.name)' (\($0.emails.joined(separator: ", ")))" }.joined(separator: ", ")
         guard let requested else {
             if accounts.count == 1, accounts[0].emails.count == 1 { return accounts[0].emails[0] }
@@ -954,9 +954,29 @@ public struct MailModule: Module {
         ["drafts", "draft", "draft messages"].contains(lastPart(mailbox))
     }
 
+    /// Mail accounts that have an address. When Mail does not answer (for example while it starts), the store
+    /// gives only the account ids from the index, with no names and no addresses. Then this asks once more, and
+    /// after that it says that Mail did not answer, not that the address is unknown.
+    private func sendingAccounts() async throws -> [MailAccount] {
+        var accounts: [MailAccount] = []
+        for attempt in 0..<2 {
+            if attempt > 0 { try await Task.sleep(for: .seconds(1)) }
+            accounts = try await backend { try await $0.accounts() }
+            if !Self.onlyIndexAccounts(accounts) { return accounts.filter { !$0.emails.isEmpty } }
+        }
+        throw ToolError(
+            .appNotRunning, "Mail did not give its account addresses. Nothing was sent or saved.",
+            fix: "Mail may still be starting. Wait a moment, then try again.")
+    }
+
+    /// True for the list that the store makes from the index alone: each account has its id as its name and no address.
+    static func onlyIndexAccounts(_ accounts: [MailAccount]) -> Bool {
+        !accounts.isEmpty && accounts.allSatisfy { $0.emails.isEmpty && $0.name == $0.id }
+    }
+
     /// The Mail address that sends a draft: the sender of the draft, which must be one address of a Mail account.
     private func draftSender(_ draft: DraftMessage) async throws -> String {
-        let accounts = try await backend { try await $0.accounts() }.filter { !$0.emails.isEmpty }
+        let accounts = try await sendingAccounts()
         let all = accounts.flatMap(\.emails)
         let wanted = draft.senderAddress
         if wanted.isEmpty, all.count == 1 { return all[0] }

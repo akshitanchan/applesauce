@@ -250,6 +250,17 @@ import Testing
 
     // MARK: script output
 
+    @Test func mailWithoutAccountAddressesIsNotCalledAnUnknownSender() async {
+        // While Mail starts, the store knows only the account ids from the index.
+        let fake = store { $0.accounts = [MailAccount(id: "ACC1", name: "ACC1", emails: [])] }
+        let error = await failure(["id": "50", "confirm": true], on: fake)
+        #expect(error?.code == .appNotRunning)
+        #expect(fake.read(\.calls).filter { $0 == "accounts" }.count == 2)
+        #expect(!fake.read(\.calls).contains("compose"))
+        #expect(!fake.read(\.calls).contains("delete"))
+        cleanUp()
+    }
+
     @Test func parsesTheDraftRecord() throws {
         let fs = "\u{1F}"
         let attachments = "a.pdf\u{1C}2048\u{1D}b.png\u{1C}7"
