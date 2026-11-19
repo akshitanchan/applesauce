@@ -16,18 +16,22 @@ import Testing
     @Test func answersOnTimeWhenWorkBlocks() async throws {
         let start = Date()
         await #expect(throws: ToolError.self) {
-            try await withTimeout(seconds: 0.2) { () -> Int in
-                blockingSleep(6)  // ignores cancellation
+            try await withTimeout(seconds: 0.2) { () async -> Int in
+                await uncancellableSleep(2)
                 return 1
             }
         }
-        // Well under the 6 s of blocked work. The margin is wide because CI machines are slow and run many
-        // tests at once.
-        #expect(Date().timeIntervalSince(start) < 4)
+        #expect(Date().timeIntervalSince(start) < 1.5)
     }
 }
 
-/// A synchronous sleep that ignores task cancellation, like a stuck Apple Event.
-private func blockingSleep(_ seconds: Double) {
-    Thread.sleep(forTimeInterval: seconds)
+/// Work that ignores task cancellation, like a stuck Apple Event. It sleeps on its own thread, so it does not
+/// hold one of the shared task threads that other tests need.
+private func uncancellableSleep(_ seconds: Double) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: seconds)
+            continuation.resume()
+        }
+    }
 }
