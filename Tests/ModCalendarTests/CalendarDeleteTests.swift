@@ -78,7 +78,8 @@ import Testing
         #expect(queries.count >= 5)
         #expect(queries.allSatisfy { $0.calendarIds == ["c2"] })
         let day: TimeInterval = 86_400
-        #expect(queries.allSatisfy { $0.end.timeIntervalSince($0.start) <= 1400 * day })
+        // 1 s of slack: dates are floating point, so a 1400-day window can measure a tiny fraction more.
+        #expect(queries.allSatisfy { $0.end.timeIntervalSince($0.start) <= 1400 * day + 1 })
         for (before, after) in zip(queries, queries.dropFirst()) { #expect(before.end == after.start) }
         let total = try #require(queries.last).end.timeIntervalSince(try #require(queries.first).start)
         #expect(total > 7300 * day)
