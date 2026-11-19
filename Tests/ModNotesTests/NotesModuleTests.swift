@@ -61,16 +61,16 @@ import Testing
         #expect(
             notes.tools.map(\.tool.name) == [
                 "list_folders", "search_notes", "get_note", "get_note_attachment", "create_note", "append_to_note",
-                "update_note", "create_folder", "move_note", "delete_note",
+                "update_note", "create_folder", "move_note", "delete_note", "delete_folder",
             ])
         #expect(
             notes.tools.filter(\.isWrite).map(\.tool.name) == [
                 "get_note_attachment", "create_note", "append_to_note", "update_note", "create_folder", "move_note",
-                "delete_note",
+                "delete_note", "delete_folder",
             ])
         #expect(
             notes.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name) == [
-                "update_note", "delete_note",
+                "update_note", "delete_note", "delete_folder",
             ])
         #expect(notes.name == "notes")
         #expect(notes.permissions == [.automationNotes])
@@ -81,7 +81,10 @@ import Testing
         let fake = store()
         let registry = try Registry(available: [module(fake)], config: config)
         #expect(registry.tools.map(\.name) == ["list_folders", "search_notes", "get_note"])
-        for tool in ["create_note", "append_to_note", "update_note", "create_folder", "move_note", "delete_note"] {
+        for tool in [
+            "create_note", "append_to_note", "update_note", "create_folder", "move_note", "delete_note",
+            "delete_folder",
+        ] {
             let result = await registry.call(
                 tool,
                 arguments: [

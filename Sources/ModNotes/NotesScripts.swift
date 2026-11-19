@@ -22,6 +22,8 @@ enum NotesScripts {
     static let exportNumber = 1006
     /// A folder with the same name is already there.
     static let duplicateNumber = 1007
+    /// A folder to delete still holds a note or a folder.
+    static let notEmptyNumber = 1008
 
     /// Longest plain text body that a tool returns, in characters.
     static let bodyLimit = 100_000
@@ -574,6 +576,54 @@ enum NotesScripts {
             end run
             """
 
+    /// argv: folder id. Output: one record: id, name, account, notes in the folder, folders in the folder,
+    /// top level (`true` or `false`), is the default folder of its account, top-level folders of the account.
+    /// It only reads.
+    static let folderDetails =
+        prelude + """
+
+
+            on run argv
+                set fld to my findFolder(item 1 of argv)
+                tell application "Notes"
+                    set fldId to id of fld
+                    set fldName to name of fld
+                    set noteTotal to count of notes of fld
+                    set subTotal to count of folders of fld
+                    set holder to container of fld
+                    set isTop to ((class of holder) is account)
+                    repeat while (class of holder) is folder
+                        set holder to container of holder
+                    end repeat
+                    set acctName to name of holder
+                    set topTotal to count of folders of holder
+                    set defaultId to ""
+                    try
+                        set defaultId to id of default folder of holder
+                    end try
+                end tell
+                return fldId & fs & my clean(fldName) & fs & my clean(acctName) & fs & (noteTotal as text) & fs & (subTotal as text) & fs & (isTop as text) & fs & ((defaultId is fldId) as text) & fs & (topTotal as text)
+            end run
+            """
+
+    /// argv: folder id. Output: `ok`. It reads the counts again and stops with error 1008 when the folder holds
+    /// a note or a folder, so a note that arrived after the check is never deleted with it.
+    static let deleteFolder =
+        prelude + """
+
+
+            on run argv
+                set fld to my findFolder(item 1 of argv)
+                tell application "Notes"
+                    set noteTotal to count of notes of fld
+                    set subTotal to count of folders of fld
+                end tell
+                if noteTotal > 0 or subTotal > 0 then my failWith(1008, "The folder holds " & noteTotal & " notes and " & subTotal & " subfolders.")
+                tell application "Notes" to delete fld
+                return "ok"
+            end run
+            """
+
     // MARK: running
 
     /// The error for a script that ran too long. A search gets a hint to use a folder.
@@ -622,6 +672,10 @@ enum NotesScripts {
             return ToolError(
                 .invalidInput, message,
                 fix: "Use another name, or use the folder that exists. list_folders shows its id.")
+        case notEmptyNumber:
+            return ToolError(
+                .invalidInput, message,
+                fix: "Only an empty folder can be deleted. Nothing was deleted. Move or delete what it holds first.")
         case exportNumber:
             return ToolError(
                 .invalidInput, message,
@@ -644,7 +698,7 @@ enum NotesScripts {
     static func cleanMessage(_ text: String) -> String {
         var message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = message.range(of: "execution error: ") { message = String(message[range.upperBound...]) }
-        if let match = message.firstMatch(of: #/\s*\((1001|1002|1004|1006|1007)\)\s*$/#) {
+        if let match = message.firstMatch(of: #/\s*\((1001|1002|1004|1006|1007|1008)\)\s*$/#) {
             message = String(message[..<match.range.lowerBound])
         }
         return message
@@ -701,6 +755,16 @@ enum NotesScripts {
             return NotesFolder(
                 id: fields[0], name: fields[1], account: fields[2], noteCount: fields.count > 3 ? Int(fields[3]) : nil)
         }
+    }
+
+    static func parseFolderDetails(_ text: String) -> FolderDetails? {
+        guard let fields = records(text).first, fields.count >= 8, !fields[0].isEmpty,
+            let notes = Int(fields[3]), let subfolders = Int(fields[4]), let top = Int(fields[7])
+        else { return nil }
+        return FolderDetails(
+            folder: NotesFolder(id: fields[0], name: fields[1], account: fields[2], noteCount: notes),
+            noteCount: notes, subfolderCount: subfolders, topLevel: fields[5] == "true",
+            isDefault: fields[6] == "true", topLevelFolderCount: top)
     }
 
     /// One row of the search output, before the sort and the limit.

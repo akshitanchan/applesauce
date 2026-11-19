@@ -139,6 +139,17 @@ public struct NotesModule: Module {
                     "Delete a note. Notes moves it to the Recently Deleted folder, where it stays for 30 days.",
                 properties: ["id": Self.idProperty],
                 required: ["id"], destructive: true),
+            ToolSpec(
+                name: "delete_folder",
+                description:
+                    "Delete an empty Notes folder. It is refused when the folder holds any note or any subfolder (the error says how many), for the built-in folders (Notes, Recently Deleted, Quick Notes) and for the default folder or the only folder of an account. It needs 'confirm' true, also for an empty folder. Without it, nothing is deleted. Notes may keep a deleted folder in Recently Deleted for a while.",
+                properties: [
+                    "folder": Self.property("string", "Folder name (any case) or id."),
+                    "account": Self.accountProperty,
+                    "confirm": Self.property(
+                        "boolean", "Must be true to delete the folder. Without it, nothing is deleted."),
+                ],
+                required: ["folder"], destructive: true),
         ]
     }
 
@@ -156,6 +167,7 @@ public struct NotesModule: Module {
         case "create_folder": return try await createFolder(args)
         case "move_note": return try await moveNote(args)
         case "delete_note": return try await deleteNote(args)
+        case "delete_folder": return try await deleteFolder(args)
         default:
             throw ToolError(.unknownTool, "The notes module has no tool named '\(tool)'.")
         }
@@ -207,6 +219,18 @@ public struct NotesModule: Module {
         let note: NoteRef
         /// Only for delete.
         let movedTo: String?
+    }
+
+    private struct FolderConfirmNeeded: Encodable {
+        let confirmRequired = true
+        let folder: NotesFolder
+        let noteCount: Int
+        let subfolderCount: Int
+    }
+    private struct FolderDeleted: Encodable {
+        let action: String
+        let deleted: String
+        let folder: NotesFolder
     }
 
     static func describe(_ item: NoteSummary) -> String {
@@ -501,5 +525,49 @@ public struct NotesModule: Module {
         return try ToolOutput(
             text: "Deleted note '\(note.name)'. Notes moved it to Recently Deleted, where it stays for 30 days.",
             payload: ActionResult(action: "delete_note", note: note, movedTo: "Recently Deleted"))
+    }
+
+    /// Names that Notes uses for its own folders. Only a top-level folder with one of these names counts.
+    static let builtInFolderNames: Set<String> = ["notes", "recently deleted", "quick notes"]
+
+    private func deleteFolder(_ args: Arguments) async throws -> ToolOutput {
+        let query = try required(args, "folder")
+        let accountQuery = try trimmed(args, "account")
+        let confirmed = try args.bool("confirm") == true
+
+        let folders = try await backend { try await $0.folders() }
+        let account = try accountQuery.map { try Self.resolveAccount($0, in: folders) }
+        let found = try Self.resolveFolder(query, account: account, in: folders)
+        let id = found.id
+        let details = try await backend { try await $0.folderDetails(id: id) }
+        let name = details.folder.name
+        if details.topLevel && Self.builtInFolderNames.contains(name.lowercased()) {
+            throw ToolError(
+                .invalidInput, "'\(name)' is a built-in Notes folder. Nothing was deleted.",
+                fix: "Built-in folders cannot be deleted.")
+        }
+        if details.isDefault || (details.topLevel && details.topLevelFolderCount <= 1) {
+            throw ToolError(
+                .invalidInput,
+                "'\(name)' is the \(details.isDefault ? "default folder" : "only folder") of the account '\(details.folder.account)'. Nothing was deleted.",
+                fix: "Keep this folder. Notes needs a folder to put new notes in.")
+        }
+        if details.noteCount > 0 || details.subfolderCount > 0 {
+            throw ToolError(
+                .invalidInput,
+                "'\(name)' holds \(details.noteCount) notes and \(details.subfolderCount) subfolders. Nothing was deleted.",
+                fix: "Only an empty folder can be deleted. Move or delete the notes and subfolders first.")
+        }
+        if !confirmed {
+            return try ToolOutput(
+                text:
+                    "Nothing deleted. The folder '\(name)' in \(details.folder.account) is empty (0 notes, 0 subfolders). Ask the user, then call again with 'confirm' true.",
+                payload: FolderConfirmNeeded(folder: details.folder, noteCount: 0, subfolderCount: 0))
+        }
+        try await backend(seconds: writeTimeout) { try await $0.deleteFolder(id: id) }
+        return try ToolOutput(
+            text:
+                "Deleted folder '\(name)' from \(details.folder.account). It was empty. To undo, call create_folder with the same name and account (add 'parent' for a nested folder).",
+            payload: FolderDeleted(action: "delete_folder", deleted: id, folder: details.folder))
     }
 }

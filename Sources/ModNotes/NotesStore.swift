@@ -10,6 +10,21 @@ struct NotesFolder: Encodable, Sendable, Equatable, Identified {
     var title: String { name }
 }
 
+/// What `delete_folder` needs to know about a folder, read at the time of the call.
+struct FolderDetails: Sendable, Equatable {
+    let folder: NotesFolder
+    /// Notes directly in the folder.
+    let noteCount: Int
+    /// Folders directly inside the folder.
+    let subfolderCount: Int
+    /// True when the folder is at the top level of its account (not inside another folder).
+    let topLevel: Bool
+    /// True when Notes uses the folder as the default for new notes in its account.
+    let isDefault: Bool
+    /// How many top-level folders the account has.
+    let topLevelFolderCount: Int
+}
+
 struct NoteSummary: Encodable, Sendable, Equatable {
     /// The AppleScript id of the note, for example `x-coredata://.../ICNote/p345`.
     let id: String
@@ -100,4 +115,9 @@ protocol NotesStore: Sendable {
     func createFolder(name: String, parentId: String?, account: String?) async throws -> NotesFolder
     func move(id: String, folderId: String) async throws -> NoteRef
     func delete(id: String) async throws -> NoteRef
+    /// Reads the counts of a folder. It throws `NOT_FOUND` for an unknown id.
+    func folderDetails(id: String) async throws -> FolderDetails
+    /// Deletes a folder. It reads the counts again and throws `INVALID_INPUT`, deleting nothing, when the folder
+    /// now holds a note or a subfolder.
+    func deleteFolder(id: String) async throws
 }

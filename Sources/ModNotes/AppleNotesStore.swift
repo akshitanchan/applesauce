@@ -106,4 +106,14 @@ struct AppleNotesStore: NotesStore {
     func delete(id: String) async throws -> NoteRef {
         try ref(try await NotesScripts.run(NotesScripts.delete, [id], timeout: writeTimeout))
     }
+
+    func folderDetails(id: String) async throws -> FolderDetails {
+        let text = try await NotesScripts.run(NotesScripts.folderDetails, [id], timeout: readTimeout)
+        guard let details = NotesScripts.parseFolderDetails(text) else { throw Self.unreadable() }
+        return details
+    }
+
+    func deleteFolder(id: String) async throws {
+        _ = try await NotesScripts.run(NotesScripts.deleteFolder, [id], timeout: writeTimeout)
+    }
 }

@@ -22,6 +22,11 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         var folderResult = NotesFolder(id: "x-coredata://A/ICFolder/p9", name: "New", account: "iCloud", noteCount: 0)
         var moved: (id: String, folderId: String)?
         var deleted: String?
+        /// What `folderDetails` returns, by folder id.
+        var details: [String: FolderDetails] = [:]
+        var deletedFolder: String?
+        /// An error that only `deleteFolder` throws.
+        var deleteFolderError: ToolError?
         var delay: Double = 0
         /// What `saveAttachment` writes, and under which name.
         var attachmentData = Data("note attachment".utf8)
@@ -117,5 +122,17 @@ final class FakeNotesStore: NotesStore, @unchecked Sendable {
         write { $0.deleted = id }
         try await enter("delete")
         return read(\.ref)
+    }
+
+    func folderDetails(id: String) async throws -> FolderDetails {
+        try await enter("folderDetails")
+        guard let details = read({ $0.details[id] }) else { throw ToolError(.notFound, "No folder \(id).") }
+        return details
+    }
+
+    func deleteFolder(id: String) async throws {
+        write { $0.deletedFolder = id }
+        try await enter("deleteFolder")
+        if let error = read(\.deleteFolderError) { throw error }
     }
 }
