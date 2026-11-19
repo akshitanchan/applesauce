@@ -47,10 +47,10 @@ import Testing
         #expect(
             tools.map(\.tool.name) == [
                 "list_calendars", "list_events", "search_events", "get_event", "create_event", "update_event",
-                "delete_event",
+                "delete_event", "delete_calendar",
             ])
         let writes = tools.filter(\.isWrite).map(\.tool.name)
-        #expect(writes == ["create_event", "update_event", "delete_event"])
+        #expect(writes == ["create_event", "update_event", "delete_event", "delete_calendar"])
         #expect(tools.last?.tool.annotations.destructiveHint == true)
         #expect(tools.allSatisfy { !$0.tool.description!.isEmpty })
     }

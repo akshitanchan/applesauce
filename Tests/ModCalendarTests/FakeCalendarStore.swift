@@ -16,9 +16,12 @@ final class FakeCalendarStore: CalendarStore, @unchecked Sendable {
         var events: [EventInfo] = []
         var calls: [String] = []
         var eventsQuery: (start: Date, end: Date, calendarIds: [String])?
+        /// Every `events` call, in order.
+        var eventsQueries: [(start: Date, end: Date, calendarIds: [String])] = []
         var created: NewEvent?
         var updated: (ref: EventRef, patch: EventPatch, span: EventSpan)?
         var deleted: (ref: EventRef, span: EventSpan)?
+        var deletedCalendar: String?
     }
 
     private let lock = NSLock()
@@ -60,6 +63,7 @@ final class FakeCalendarStore: CalendarStore, @unchecked Sendable {
         write {
             $0.calls.append("events")
             $0.eventsQuery = (start, end, calendarIds)
+            $0.eventsQueries.append((start, end, calendarIds))
         }
         return read(\.events).filter { calendarIds.isEmpty || calendarIds.contains($0.calendarId) }
     }
@@ -98,14 +102,23 @@ final class FakeCalendarStore: CalendarStore, @unchecked Sendable {
             $0.deleted = (ref, span)
         }
     }
+
+    func deleteCalendar(id: String) async throws {
+        write {
+            $0.calls.append("deleteCalendar")
+            $0.deletedCalendar = id
+        }
+    }
 }
 
 // MARK: sample data
 
 func date(_ text: String) -> Date { ISODate.parse(text)!.date }
 
-func calendarInfo(_ id: String, _ title: String, writable: Bool = true) -> CalendarInfo {
-    CalendarInfo(id: id, title: title, type: "caldav", source: "iCloud", writable: writable)
+func calendarInfo(
+    _ id: String, _ title: String, writable: Bool = true, type: String = "caldav", isDefault: Bool = false
+) -> CalendarInfo {
+    CalendarInfo(id: id, title: title, type: type, source: "iCloud", writable: writable, isDefault: isDefault)
 }
 
 func eventInfo(

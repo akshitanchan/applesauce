@@ -158,6 +158,16 @@ public struct CalendarModule: Module {
                         "Must be true to delete a recurring event with 'span' 'future'. It cannot be undone."),
                 ],
                 required: ["id"], destructive: true, idempotent: true),
+            ToolSpec(
+                name: "delete_calendar",
+                description:
+                    "Delete an empty calendar. It is refused when the calendar has any event from 10 years back to 10 years ahead, when it is read-only, subscribed or a birthday calendar, and for the default calendar for new events. Events outside that range are not checked. It needs 'confirm' true, also for an empty calendar. Without it, nothing is deleted. The result says what was checked.",
+                properties: [
+                    "calendar": Self.property("string", "Calendar name or id. Names ignore case."),
+                    "confirm": Self.property(
+                        "boolean", "Must be true to delete the calendar. Without it, nothing is deleted."),
+                ],
+                required: ["calendar"], destructive: true, idempotent: true),
         ]
     }
 
@@ -172,6 +182,7 @@ public struct CalendarModule: Module {
         case "create_event": return try await createEvent(args)
         case "update_event": return try await updateEvent(args)
         case "delete_event": return try await deleteEvent(args)
+        case "delete_calendar": return try await deleteCalendar(args)
         default:
             throw ToolError(.unknownTool, "The calendar module has no tool named '\(tool)'.")
         }
@@ -224,6 +235,24 @@ public struct CalendarModule: Module {
     private struct ConfirmNeeded: Encodable {
         let confirmRequired = true
         let event: EventInfo
+    }
+
+    /// What `delete_calendar` looked at.
+    private struct Checked: Encodable {
+        let from: Date
+        let to: Date
+        /// Events found in the range. It is 0, or the call would have been refused.
+        let eventCount: Int
+    }
+    private struct CalendarConfirmNeeded: Encodable {
+        let confirmRequired = true
+        let calendar: CalendarInfo
+        let checked: Checked
+    }
+    private struct CalendarDeleted: Encodable {
+        let deleted: String
+        let calendar: CalendarInfo
+        let checked: Checked
     }
 
     static func describe(_ event: EventInfo) -> String {
@@ -465,5 +494,55 @@ public struct CalendarModule: Module {
         return try ToolOutput(
             text: "Deleted event: \(Self.describe(current)). To undo, call create_event with the fields in 'event'.",
             payload: Deleted(deleted: current.id, event: current))
+    }
+
+    private func deleteCalendar(_ args: Arguments) async throws -> ToolOutput {
+        let query = try args.requiredString("calendar")
+        let confirmed = try args.bool("confirm") == true
+
+        try await access()
+        guard let found = try await calendar(named: query, writable: true) else {
+            throw ToolError.invalidInput("'calendar' is required.")
+        }
+        if found.type == "subscription" || found.type == "birthday" {
+            throw ToolError(
+                .invalidInput, "'\(found.title)' is a \(found.type) calendar. Nothing was deleted.",
+                fix: "Remove a subscribed or birthday calendar in the Calendar app.")
+        }
+        if found.isDefault {
+            throw ToolError(
+                .invalidInput, "'\(found.title)' is the default calendar for new events. Nothing was deleted.",
+                fix: "Make another calendar the default in the Calendar app first, or keep this calendar.")
+        }
+        let now = Date()
+        let windows = CalendarEmptiness.windows(now: now)
+        let id = found.id
+        var identifiers = Set<String>()
+        for window in windows {
+            let events = try await backend {
+                try await $0.events(start: window.start, end: window.end, calendarIds: [id])
+            }
+            identifiers.formUnion(events.map { (try? EventRef.parse($0.id).identifier) ?? $0.id })
+        }
+        let span = CalendarEmptiness.span(now: now)
+        let checked = Checked(from: span.start, to: span.end, eventCount: identifiers.count)
+        let range = "from \(ISODate.string(span.start)) to \(ISODate.string(span.end))"
+        if !identifiers.isEmpty {
+            throw ToolError(
+                .invalidInput,
+                "'\(found.title)' has \(identifiers.count) events \(range). Nothing was deleted.",
+                fix: "Only an empty calendar can be deleted. Move or delete the events first.")
+        }
+        if !confirmed {
+            return try ToolOutput(
+                text:
+                    "Nothing deleted. The calendar '\(found.title)' has no events \(range). Events outside that range are not checked. Ask the user, then call again with 'confirm' true.",
+                payload: CalendarConfirmNeeded(calendar: found, checked: checked))
+        }
+        try await backend { try await $0.deleteCalendar(id: id) }
+        return try ToolOutput(
+            text:
+                "Deleted calendar '\(found.title)'. It had no events \(range). Events outside that range were not checked.",
+            payload: CalendarDeleted(deleted: found.id, calendar: found, checked: checked))
     }
 }

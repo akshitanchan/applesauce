@@ -27,7 +27,12 @@ actor EventKitCalendarStore: CalendarStore {
     }
 
     func calendars() async throws -> [CalendarInfo] {
-        store.calendars(for: .event).map(Self.info)
+        let defaultId = store.defaultCalendarForNewEvents?.calendarIdentifier
+        return store.calendars(for: .event).map {
+            var info = Self.info($0)
+            info.isDefault = $0.calendarIdentifier == defaultId
+            return info
+        }
     }
 
     func events(start: Date, end: Date, calendarIds: [String]) async throws -> [EventInfo] {
@@ -110,6 +115,24 @@ actor EventKitCalendarStore: CalendarStore {
             try store.remove(event, span: Self.ekSpan(span), commit: true)
         } catch {
             throw Self.saveError(error)
+        }
+    }
+
+    func deleteCalendar(id: String) async throws {
+        guard let calendar = store.calendar(withIdentifier: id), calendar.allowedEntityTypes.contains(.event) else {
+            throw ToolError(.notFound, "No calendar has the id '\(id)'.", fix: "Use a calendar from list_calendars.")
+        }
+        guard !calendar.isImmutable else {
+            throw ToolError(
+                .invalidInput, "The calendar '\(calendar.title)' cannot be deleted. Calendar marks it as fixed.",
+                fix: "Delete it in the Calendar app if it allows that. Nothing was deleted.")
+        }
+        do {
+            try store.removeCalendar(calendar, commit: true)
+        } catch {
+            throw ToolError(
+                .internalError, "Calendar could not delete the calendar: \(error.localizedDescription)",
+                fix: "Delete the calendar in the Calendar app. Nothing was deleted.")
         }
     }
 

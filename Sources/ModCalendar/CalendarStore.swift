@@ -8,6 +8,8 @@ struct CalendarInfo: Encodable, Sendable, Equatable, Identified {
     let type: String
     let source: String?
     let writable: Bool
+    /// True for the default calendar for new events.
+    var isDefault = false
 }
 
 struct EventInfo: Encodable, Sendable, Equatable {
@@ -159,4 +161,6 @@ protocol CalendarStore: Sendable {
     func create(_ event: NewEvent) async throws -> EventInfo
     func update(_ ref: EventRef, _ patch: EventPatch, span: EventSpan) async throws -> EventInfo
     func delete(_ ref: EventRef, span: EventSpan) async throws
+    /// Deletes a calendar. The module has checked that it is empty, writable and not the default calendar.
+    func deleteCalendar(id: String) async throws
 }
