@@ -17,11 +17,13 @@ import Testing
         let start = Date()
         await #expect(throws: ToolError.self) {
             try await withTimeout(seconds: 0.2) { () -> Int in
-                blockingSleep(2)  // ignores cancellation
+                blockingSleep(6)  // ignores cancellation
                 return 1
             }
         }
-        #expect(Date().timeIntervalSince(start) < 1.5)
+        // Well under the 6 s of blocked work. The margin is wide because CI machines are slow and run many
+        // tests at once.
+        #expect(Date().timeIntervalSince(start) < 4)
     }
 }
 
