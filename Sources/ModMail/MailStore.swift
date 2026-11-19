@@ -127,6 +127,15 @@ struct OutgoingMail: Sendable, Equatable {
     var attachments: [String] = []
 }
 
+/// A saved draft with what `send_draft` needs to build it again.
+struct DraftMessage: Sendable, Equatable {
+    /// Subject, sender, to, cc, plain text body and attachments of the draft.
+    let message: MailMessage
+    let bcc: [String]
+    /// The address part of the sender, for example `me@work.example`. Empty when the draft has none.
+    let senderAddress: String
+}
+
 /// The only way the mail module reaches Mail. The real store reads the Envelope Index and the `.emlx` files,
 /// and runs AppleScript. Tests use a fake.
 protocol MailStore: Sendable {
@@ -152,6 +161,8 @@ protocol MailStore: Sendable {
     func indexMessage(id: String) async throws -> MailMessage
     /// A message read through Mail. Needs a running Mail.
     func scriptedMessage(_ ref: MessageRef) async throws -> MailMessage
+    /// A saved draft, read through Mail (it has Bcc, which the index does not). Needs a running Mail.
+    func draft(_ ref: MessageRef) async throws -> DraftMessage
     /// Where messages live (from the index). Throws `NOT_FOUND` for an unknown id.
     func locate(ids: [String]) async throws -> [MessageRef]
 

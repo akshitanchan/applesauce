@@ -169,6 +169,16 @@ public struct MailModule: Module {
                 ],
                 required: ["subject", "body"], write: true),
             ToolSpec(
+                name: "send_draft",
+                description:
+                    "Send a draft that is saved in a Drafts mailbox. Give its id from search_mail (with 'mailbox' Drafts). Mail cannot send a saved draft directly, so applesauce builds a new message from the draft (subject, sender, To, Cc, Bcc, plain text body and attachments), sends it, and then deletes the old draft (Mail moves it to the Trash). Formatting of a rich text draft is lost. A draft with an attachment that cannot be fetched, or with a text above \(MailScripts.bodyLimit) characters, is not sent. Without 'confirm' true nothing is sent: the result shows the subject, the sender, the recipients and the attachment names, so ask the user first. A message outside a Drafts mailbox is refused. \(Self.openNote) Sending cannot be undone. create_draft and forward_message do not return the id of the draft they save. Find it with search_mail.",
+                properties: [
+                    "id": Self.property("string", "Message id of the draft, from search_mail in a Drafts mailbox."),
+                    "confirm": Self.property("boolean", "Must be true to send."),
+                    "in_mailbox": Self.inMailbox, "in_account": Self.inAccount,
+                ],
+                required: ["id"], destructive: true),
+            ToolSpec(
                 name: "send_mail",
                 description:
                     "Send a plain text email, with files attached when 'attachments' is given. \(Self.confirmNote) \(Self.fromNote) \(Self.openNote) Sending cannot be undone. On Gmail accounts, Mail may leave a copy in Drafts.",
@@ -266,6 +276,7 @@ public struct MailModule: Module {
         case "get_mail_attachment": return try await getAttachment(args)
         case "create_draft": return try await composeMail(args, tool: tool)
         case "send_mail": return try await composeMail(args, tool: tool)
+        case "send_draft": return try await sendDraft(args)
         case "reply": return try await replyToMessage(args)
         case "forward_message": return try await forwardMessage(args)
         case "move_message": return try await changeMessages(args, tool: tool)
@@ -335,6 +346,26 @@ public struct MailModule: Module {
         var attached: [String]? = nil
         /// Attachments of a forwarded message that were left out, each with the reason.
         var skipped: [String]? = nil
+    }
+
+    /// The result of send_draft, with or without the send.
+    private struct DraftResult: Encodable {
+        let action = "send_draft"
+        let id: String
+        let sent: Bool
+        /// True when nothing was sent because the call needs 'confirm' true.
+        var confirmRequired: Bool? = nil
+        let subject: String
+        let from: String
+        let to: [String]
+        let cc: [String]
+        let bcc: [String]
+        let attached: [String]
+        /// How the draft was sent: a new message built from the draft (Mail cannot send a saved draft).
+        var path: String? = nil
+        /// Whether the old draft was deleted after the send.
+        var draftDeleted: Bool? = nil
+        var note: String? = nil
     }
 
     static func describe(_ item: MessageSummary) -> String {
@@ -914,6 +945,117 @@ public struct MailModule: Module {
                 fix: "Ask the user which address to send from, then call again with that address in 'from'.")
         }
         return account.emails[0]
+    }
+
+    // MARK: send_draft
+
+    /// Names of the Drafts mailbox in Mail, iCloud, Exchange and Gmail. Only the last part of a path counts.
+    static func isDrafts(_ mailbox: String) -> Bool {
+        ["drafts", "draft", "draft messages"].contains(lastPart(mailbox))
+    }
+
+    /// The Mail address that sends a draft: the sender of the draft, which must be one address of a Mail account.
+    private func draftSender(_ draft: DraftMessage) async throws -> String {
+        let accounts = try await backend { try await $0.accounts() }.filter { !$0.emails.isEmpty }
+        let all = accounts.flatMap(\.emails)
+        let wanted = draft.senderAddress
+        if wanted.isEmpty, all.count == 1 { return all[0] }
+        if let match = all.first(where: { $0.caseInsensitiveCompare(wanted) == .orderedSame }) { return match }
+        throw ToolError(
+            .invalidInput,
+            wanted.isEmpty
+                ? "The draft has no sender address. Nothing was sent."
+                : "The sender of the draft ('\(wanted)') is not an address of a Mail account. Nothing was sent.",
+            fix: "Open the draft in Mail, choose the sender, and send it there.")
+    }
+
+    private func sendDraft(_ args: Arguments) async throws -> ToolOutput {
+        let id = try requiredID(args)
+        let confirmed = (try args.bool("confirm")) == true
+        let place = try location(args)
+        try await requireRunning()
+        let ref = try await refs([id], at: place)[0]
+        guard Self.isDrafts(ref.mailbox) else {
+            throw ToolError(
+                .invalidInput,
+                "Message \(id) is in '\(ref.mailbox)', not in a Drafts mailbox. Nothing was sent.",
+                fix: "Give the id of a draft: search_mail with 'mailbox' Drafts. To send a new message, use send_mail.")
+        }
+        let draft = try await backend { try await $0.draft(ref) }
+        let original = draft.message
+        let names = original.attachments.map(\.name)
+        func result(sent: Bool) -> DraftResult {
+            DraftResult(
+                id: id, sent: sent, subject: original.subject, from: original.from, to: original.to, cc: original.cc,
+                bcc: draft.bcc, attached: names)
+        }
+        if !confirmed {
+            var lines = [
+                "Not sent: 'confirm' was not true. Show this draft to the user. Call send_draft again with 'confirm' true to send it.",
+                "Subject: \(original.subject.isEmpty ? "(no subject)" : original.subject)", "From: \(original.from)",
+            ]
+            lines.append("To: \(original.to.isEmpty ? "(none)" : original.to.joined(separator: ", "))")
+            if !original.cc.isEmpty { lines.append("Cc: \(original.cc.joined(separator: ", "))") }
+            if !draft.bcc.isEmpty { lines.append("Bcc: \(draft.bcc.joined(separator: ", "))") }
+            lines.append("Attachments: \(names.isEmpty ? "none" : names.joined(separator: ", "))")
+            var payload = result(sent: false)
+            payload.confirmRequired = true
+            return try ToolOutput(text: lines.joined(separator: "\n"), payload: payload)
+        }
+        if original.to.isEmpty && original.cc.isEmpty && draft.bcc.isEmpty {
+            throw ToolError(
+                .invalidInput, "The draft has no recipient. Nothing was sent.",
+                fix: "Open the draft in Mail, add a recipient, and send it there.")
+        }
+        guard let text = original.body, !original.truncated else {
+            throw ToolError(
+                .invalidInput,
+                original.body == nil
+                    ? "The text of the draft is not available. Nothing was sent."
+                    : "The text of the draft is longer than \(MailScripts.bodyLimit) characters, and a cut text would be sent. Nothing was sent.",
+                fix: "Open the draft in Mail and send it there.")
+        }
+        guard text.utf8.count <= Self.bodyInputLimit else {
+            throw ToolError(
+                .invalidInput,
+                "The text of the draft is too long (\(text.utf8.count) bytes). The limit is \(Self.bodyInputLimit) bytes. Nothing was sent.",
+                fix: "Open the draft in Mail and send it there.")
+        }
+        let sender = try await draftSender(draft)
+        let saved = try await saveOriginalAttachments(of: original)
+        guard saved.skipped.isEmpty else {
+            for file in saved.files { try? FileManager.default.removeItem(at: file.file.deletingLastPathComponent()) }
+            throw ToolError(
+                .notFound,
+                "Some attachments of the draft could not be fetched: \(saved.skipped.joined(separator: "; ")). Nothing was sent.",
+                fix: "Open the draft in Mail so that it downloads the attachments, then try again. Or send it in Mail.")
+        }
+        let mail = OutgoingMail(
+            to: original.to, cc: original.cc, bcc: draft.bcc, subject: original.subject, body: text, from: sender,
+            attachments: saved.files.map(\.file.path))
+        try await backend(seconds: writeTimeout, onTimeout: Self.sendTimeout) {
+            try await $0.compose(mail, send: true)
+        }
+        // The message is sent. The old draft goes only now, and a failure here is a note, not an error.
+        var note: String?
+        var deleted = true
+        do {
+            try await backend(seconds: writeTimeout) { try await $0.delete([ref]) }
+        } catch {
+            deleted = false
+            note =
+                "The message was sent, but the old draft could not be deleted (\((error as? ToolError)?.message ?? error.localizedDescription)). Delete the draft in Mail, or it can be sent twice."
+        }
+        var payload = result(sent: true)
+        payload.path = "rebuild"
+        payload.draftDeleted = deleted
+        payload.note = note
+        let attachedText = Self.attachedText(names)
+        let tail = deleted ? " The old draft is in the Trash." : " \(note ?? "")"
+        return try ToolOutput(
+            text:
+                "Sent draft \(id) from \(sender) to \((original.to + original.cc + draft.bcc).joined(separator: ", ")), as a new message built from the draft.\(attachedText)\(tail)",
+            payload: payload)
     }
 
     private func replyToMessage(_ args: Arguments) async throws -> ToolOutput {

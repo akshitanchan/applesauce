@@ -23,6 +23,11 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         var indexError: ToolError?
         var message: MailMessage?
         var scriptedMessage: MailMessage?
+        /// What `draft` returns.
+        var draft: DraftMessage?
+        /// Errors that `compose` and `delete` throw.
+        var composeError: ToolError?
+        var deleteError: ToolError?
         var locateError: ToolError?
         var refs: [String: MessageRef] = [:]
         var calls: [String] = []
@@ -121,6 +126,12 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
         return message
     }
 
+    func draft(_ ref: MessageRef) async throws -> DraftMessage {
+        write { $0.calls.append("draft") }
+        guard let draft = read(\.draft) else { throw ToolError(.notFound, "No draft \(ref.id).") }
+        return draft
+    }
+
     func locate(ids: [String]) async throws -> [MessageRef] {
         write { $0.calls.append("locate") }
         if let error = read(\.locateError) { throw error }
@@ -159,6 +170,7 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
             $0.composed = (mail, send)
         }
         try await delay()
+        if let error = read(\.composeError) { throw error }
     }
 
     func reply(to ref: MessageRef, body: String, replyAll: Bool, send: Bool) async throws {
@@ -199,5 +211,6 @@ final class FakeMailStore: MailStore, @unchecked Sendable {
             $0.deleted = refs
         }
         try await delay()
+        if let error = read(\.deleteError) { throw error }
     }
 }

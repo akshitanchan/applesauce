@@ -297,6 +297,55 @@ enum MailScripts {
             end run
             """
 
+    /// argv: account spec, mailbox path, id. It reads a saved draft for `send_draft`. It only reads.
+    /// Output (one record): subject, sender, sender address only, to (comma separated), cc, bcc, attachments, content.
+    /// Attachments are `name`, character 28, `size`, and character 29 between attachments.
+    static let draft =
+        prelude + """
+
+
+            on run argv
+                set msg to my findMessage(item 1 of argv, item 2 of argv, item 3 of argv)
+                set gs to character id 29
+                set us to character id 28
+                tell application "Mail"
+                    set toList to {}
+                    set ccList to {}
+                    set bccList to {}
+                    try
+                        set toList to address of every to recipient of msg
+                    end try
+                    try
+                        set ccList to address of every cc recipient of msg
+                    end try
+                    try
+                        set bccList to address of every bcc recipient of msg
+                    end try
+                    set senderText to ""
+                    set senderAddress to ""
+                    try
+                        set senderText to sender of msg
+                        set senderAddress to extract address from senderText
+                    end try
+                    set attachmentList to {}
+                    try
+                        repeat with att in mail attachments of msg
+                            set attSize to 0
+                            try
+                                set attSize to file size of att
+                            end try
+                            set end of attachmentList to (name of att) & us & (attSize as text)
+                        end repeat
+                    end try
+                    set bodyText to ""
+                    try
+                        set bodyText to content of msg
+                    end try
+                    return my safeText(subject of msg) & fs & my safeText(senderText) & fs & my safeText(senderAddress) & fs & my joinList(toList, ",") & fs & my joinList(ccList, ",") & fs & my joinList(bccList, ",") & fs & my joinList(attachmentList, gs) & fs & my safeText(bodyText)
+                end tell
+            end run
+            """
+
     /// argv: account spec, mailbox path, id, mode (`index` or `name`), the index or the name, the file to write,
     /// the size limit in bytes. Output (one record): the attachment name, the size in bytes.
     /// Error numbers: 1001 no such attachment, 1003 above the limit, 1004 the name is not unique,
@@ -705,6 +754,25 @@ enum MailScripts {
             flagged: flagged, messageId: nil, body: body, bodySource: "applescript",
             truncated: truncated, partial: false, attachments: attachments, note: nil,
             flagColor: colorName(fields[5], flagged: flagged))
+    }
+
+    /// Reads the output of the `draft` script.
+    static func parseDraft(_ text: String, ref: MessageRef) -> DraftMessage? {
+        let fields = text.split(separator: fieldSeparator, maxSplits: 7, omittingEmptySubsequences: false).map(
+            String.init)
+        guard fields.count == 8 else { return nil }
+        func list(_ text: String) -> [String] { text.split(separator: ",").map(String.init) }
+        let attachments = fields[6].split(separator: "\u{1D}").map { item -> MailAttachment in
+            let parts = item.split(separator: "\u{1C}", omittingEmptySubsequences: false).map(String.init)
+            return MailAttachment(name: parts.first ?? "", size: parts.count > 1 ? Int(parts[1]) : nil)
+        }
+        // Mail puts an object replacement character in the text where an attachment sits.
+        let (body, truncated) = limitBody(fields[7].replacingOccurrences(of: "\u{FFFC}", with: ""))
+        let message = MailMessage(
+            id: ref.id, subject: fields[0], from: fields[1], to: list(fields[3]), cc: list(fields[4]), date: nil,
+            mailbox: ref.mailbox, accountId: ref.accountId, read: true, flagged: false, messageId: nil, body: body,
+            bodySource: "applescript", truncated: truncated, partial: false, attachments: attachments, note: nil)
+        return DraftMessage(message: message, bcc: list(fields[5]), senderAddress: fields[2])
     }
 
     /// The color name for the text of a `flag index`. Nil for an unflagged message, -1 or a value that is not a color.

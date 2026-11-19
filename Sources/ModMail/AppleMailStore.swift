@@ -241,6 +241,17 @@ struct AppleMailStore: MailStore {
         return message
     }
 
+    func draft(_ ref: MessageRef) async throws -> DraftMessage {
+        try await ensureRunning()
+        let text = try await MailScripts.run(
+            MailScripts.draft, [ref.accountId, ref.mailbox, ref.id], timeout: readTimeout)
+        guard let draft = MailScripts.parseDraft(text, ref: ref) else {
+            throw ToolError(
+                .internalError, "Mail gave an answer that could not be read.", fix: "Report this error.")
+        }
+        return draft
+    }
+
     func locate(ids: [String]) async throws -> [MessageRef] {
         let rowids = ids.compactMap { Int64($0) }
         let refs = try openIndex().index.refs(rowids: rowids)

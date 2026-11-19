@@ -57,16 +57,19 @@ import Testing
         #expect(
             mail.tools.map(\.tool.name) == [
                 "list_accounts", "list_mailboxes", "search_mail", "get_message", "get_mail_attachment", "create_draft",
-                "send_mail", "forward_message", "reply", "move_message", "flag_message", "mark_read",
+                "send_draft", "send_mail", "forward_message", "reply", "move_message", "flag_message", "mark_read",
                 "delete_message",
             ])
         #expect(
             Set(mail.tools.filter(\.isWrite).map(\.tool.name)) == [
-                "get_mail_attachment", "create_draft", "send_mail", "forward_message", "reply", "move_message",
-                "flag_message", "mark_read", "delete_message",
+                "get_mail_attachment", "create_draft", "send_draft", "send_mail", "forward_message", "reply",
+                "move_message", "flag_message", "mark_read", "delete_message",
             ])
         let destructive = mail.tools.filter { $0.tool.annotations.destructiveHint == true }.map(\.tool.name)
-        #expect(Set(destructive) == ["send_mail", "forward_message", "reply", "move_message", "delete_message"])
+        #expect(
+            Set(destructive) == [
+                "send_draft", "send_mail", "forward_message", "reply", "move_message", "delete_message",
+            ])
         #expect(mail.name == "mail")
         #expect(mail.permissions == [.automationMail, .fullDiskAccess])
     }
