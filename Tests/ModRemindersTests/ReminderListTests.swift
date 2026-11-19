@@ -98,4 +98,88 @@ import Testing
         let spec = try #require(RemindersModule.toolSpecs.first { $0.tool.name == "create_reminder" })
         #expect(spec.tool.description?.contains("Subtasks and tags are not supported") == true)
     }
+
+    // MARK: delete_reminder_list
+
+    func listStore(_ reminders: [ReminderInfo] = []) -> FakeRemindersStore {
+        store {
+            $0.lists = [listInfo("l1", "Inbox", isDefault: true), self.shopping, self.shared]
+            $0.reminders = reminders
+        }
+    }
+
+    @Test func deleteListBadInputNeverReachesTheStore() async {
+        let fake = store { $0.permission = .notDetermined }
+        for args: [String: Value] in [[:], ["list": 5], ["list": "Shopping", "confirm": "yes"]] {
+            let error = await failure("delete_reminder_list", args, on: fake)
+            #expect(error?.code == .invalidInput, "\(args)")
+        }
+        #expect(fake.read(\.calls).isEmpty)
+    }
+
+    @Test func deleteListNeedsConfirmEvenWhenEmpty() async throws {
+        let fake = listStore()
+        for confirm: Value? in [nil, false] {
+            var args: [String: Value] = ["list": "shopping"]
+            if let confirm { args["confirm"] = confirm }
+            let output = try await run("delete_reminder_list", args, on: fake)
+            #expect(output.structured?.objectValue?["confirm_required"]?.boolValue == true)
+            #expect(output.structured?.objectValue?["list"]?.objectValue?["id"]?.stringValue == "l2")
+            #expect(output.text.hasPrefix("Nothing deleted."))
+        }
+        #expect(fake.read(\.deletedList) == nil)
+    }
+
+    @Test func deleteListRemovesAnEmptyListAndReturnsACopy() async throws {
+        let fake = listStore()
+        let output = try await run("delete_reminder_list", ["list": "l2", "confirm": true], on: fake)
+        #expect(fake.read(\.deletedList) == "l2")
+        let object = try #require(output.structured?.objectValue)
+        #expect(object["deleted"]?.stringValue == "l2")
+        #expect(object["list"]?.objectValue?["title"]?.stringValue == "Shopping")
+        #expect(object["reminder_count"]?.intValue == 0)
+        #expect(output.text.contains("create_reminder_list"))
+    }
+
+    @Test func deleteListRefusesAListWithRemindersOfAnyState() async {
+        let open = makeReminder("r1", "Milk", list: shopping)
+        let done = makeReminder("r2", "Eggs", completed: true, list: shopping)
+        for reminders in [[open], [done], [open, done]] {
+            let fake = listStore(reminders)
+            let error = await failure("delete_reminder_list", ["list": "Shopping", "confirm": true], on: fake)
+            #expect(error?.code == .invalidInput)
+            #expect(error?.message.contains("has \(reminders.count) reminders") == true)
+            #expect(error?.message.contains("Nothing was deleted") == true)
+            #expect(fake.read(\.deletedList) == nil)
+        }
+        let fake = listStore([open, done])
+        let error = await failure("delete_reminder_list", ["list": "Shopping"], on: fake)
+        #expect(error?.message.contains("1 not completed, 1 completed") == true)
+    }
+
+    @Test func deleteListIgnoresRemindersOfOtherLists() async throws {
+        let other = makeReminder("r1", "Stamps", list: inbox)
+        let fake = listStore([other])
+        _ = try await run("delete_reminder_list", ["list": "Shopping", "confirm": true], on: fake)
+        #expect(fake.read(\.deletedList) == "l2")
+    }
+
+    @Test func deleteListRefusesTheDefaultReadOnlyAndUnknownLists() async {
+        let fake = listStore()
+        let byName = await failure("delete_reminder_list", ["list": "inbox", "confirm": true], on: fake)
+        #expect(byName?.code == .invalidInput)
+        #expect(byName?.message.contains("default list") == true)
+        let readOnly = await failure("delete_reminder_list", ["list": "Shared", "confirm": true], on: fake)
+        #expect(readOnly?.code == .invalidInput)
+        let unknown = await failure("delete_reminder_list", ["list": "Nope", "confirm": true], on: fake)
+        #expect(unknown?.code == .notFound)
+        #expect(fake.read(\.deletedList) == nil)
+        #expect(!fake.read(\.calls).contains("reminders"))
+    }
+
+    @Test func deleteListIsDestructive() throws {
+        let spec = try #require(RemindersModule.toolSpecs.first { $0.tool.name == "delete_reminder_list" })
+        #expect(spec.isWrite)
+        #expect(spec.tool.annotations.destructiveHint == true)
+    }
 }

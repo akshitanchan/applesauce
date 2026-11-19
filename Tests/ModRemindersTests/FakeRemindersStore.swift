@@ -22,6 +22,7 @@ final class FakeRemindersStore: RemindersStore, @unchecked Sendable {
         var updated: (id: String, patch: ReminderPatch)?
         var completed: (id: String, value: Bool)?
         var deleted: String?
+        var deletedList: String?
     }
 
     private let lock = NSLock()
@@ -119,14 +120,21 @@ final class FakeRemindersStore: RemindersStore, @unchecked Sendable {
             $0.deleted = id
         }
     }
+
+    func deleteList(id: String) async throws {
+        write {
+            $0.calls.append("deleteList")
+            $0.deletedList = id
+        }
+    }
 }
 
 // MARK: sample data
 
 func date(_ text: String) -> Date { ISODate.parse(text)!.date }
 
-func listInfo(_ id: String, _ title: String, writable: Bool = true) -> ReminderListInfo {
-    ReminderListInfo(id: id, title: title, source: "iCloud", writable: writable)
+func listInfo(_ id: String, _ title: String, writable: Bool = true, isDefault: Bool = false) -> ReminderListInfo {
+    ReminderListInfo(id: id, title: title, source: "iCloud", writable: writable, isDefault: isDefault)
 }
 
 func makeReminder(

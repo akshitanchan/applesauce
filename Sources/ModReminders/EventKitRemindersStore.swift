@@ -27,7 +27,12 @@ actor EventKitRemindersStore: RemindersStore {
     }
 
     func lists() async throws -> [ReminderListInfo] {
-        store.calendars(for: .reminder).map(Self.info)
+        let defaultId = store.defaultCalendarForNewReminders()?.calendarIdentifier
+        return store.calendars(for: .reminder).map {
+            var info = Self.info($0)
+            info.isDefault = $0.calendarIdentifier == defaultId
+            return info
+        }
     }
 
     func sources() async throws -> [ReminderSourceInfo] {
@@ -135,6 +140,25 @@ actor EventKitRemindersStore: RemindersStore {
             try store.remove(reminder, commit: true)
         } catch {
             throw Self.saveError(error)
+        }
+    }
+
+    func deleteList(id: String) async throws {
+        guard let list = store.calendar(withIdentifier: id), list.allowedEntityTypes.contains(.reminder) else {
+            throw ToolError(
+                .notFound, "No reminder list has the id '\(id)'.", fix: "Use a list from list_reminder_lists.")
+        }
+        guard !list.isImmutable else {
+            throw ToolError(
+                .invalidInput, "The list '\(list.title)' cannot be deleted. Reminders marks it as fixed.",
+                fix: "Delete it in the Reminders app if it allows that. Nothing was deleted.")
+        }
+        do {
+            try store.removeCalendar(list, commit: true)
+        } catch {
+            throw ToolError(
+                .internalError, "Reminders could not delete the list: \(error.localizedDescription)",
+                fix: "Delete the list in the Reminders app. Nothing was deleted.")
         }
     }
 

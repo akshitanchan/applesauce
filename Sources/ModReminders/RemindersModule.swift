@@ -125,6 +125,16 @@ public struct RemindersModule: Module {
                     "Delete a reminder. The result has a copy of the reminder, so create_reminder can put it back.",
                 properties: ["id": Self.property("string", Self.idNote)],
                 required: ["id"], destructive: true, idempotent: true),
+            ToolSpec(
+                name: "delete_reminder_list",
+                description:
+                    "Delete an empty reminder list. It is refused when the list has any reminder (completed or not), when the list is read-only, and for the default list. It needs 'confirm' true, also for an empty list. Without it, nothing is deleted. The result has a copy of the list (name and account), so create_reminder_list can make it again.",
+                properties: [
+                    "list": Self.property("string", "List name or id. Names ignore case."),
+                    "confirm": Self.property(
+                        "boolean", "Must be true to delete the list. Without it, nothing is deleted."),
+                ],
+                required: ["list"], destructive: true, idempotent: true),
         ]
     }
 
@@ -141,6 +151,7 @@ public struct RemindersModule: Module {
         case "update_reminder": return try await updateReminder(args)
         case "complete_reminder": return try await completeReminder(args)
         case "delete_reminder": return try await deleteReminder(args)
+        case "delete_reminder_list": return try await deleteReminderList(args)
         default:
             throw ToolError(.unknownTool, "The reminders module has no tool named '\(tool)'.")
         }
@@ -197,6 +208,20 @@ public struct RemindersModule: Module {
         let deleted: String
         /// The reminder as it was, so create_reminder can make it again.
         let reminder: ReminderInfo
+    }
+
+    private struct ListConfirmNeeded: Encodable {
+        let confirmRequired = true
+        let list: ReminderListInfo
+        /// The reminders that the list holds. It is 0, or the call would have been refused.
+        let reminderCount: Int
+    }
+    private struct ListDeleted: Encodable {
+        let deleted: String
+        /// The list as it was, so create_reminder_list can make it again.
+        let list: ReminderListInfo
+        /// The reminders found in the list before the delete. Always 0.
+        let reminderCount: Int
     }
 
     static func describe(_ reminder: ReminderInfo) -> String {
@@ -403,5 +428,40 @@ public struct RemindersModule: Module {
             text:
                 "Deleted reminder: \(Self.describe(current)). To undo, call create_reminder with the fields in 'reminder'.",
             payload: Deleted(deleted: current.id, reminder: current))
+    }
+
+    private func deleteReminderList(_ args: Arguments) async throws -> ToolOutput {
+        let query = try args.requiredString("list")
+        let confirmed = try args.bool("confirm") == true
+
+        try await access()
+        guard let found = try await list(named: query, writable: true) else {
+            throw ToolError.invalidInput("'list' is required.")
+        }
+        if found.isDefault {
+            throw ToolError(
+                .invalidInput, "'\(found.title)' is the default list for new reminders. Nothing was deleted.",
+                fix: "Make another list the default in the Reminders app first, or keep this list.")
+        }
+        let id = found.id
+        let held = try await backend { try await $0.reminders(listIds: [id]) }
+        if !held.isEmpty {
+            let done = held.filter(\.completed).count
+            throw ToolError(
+                .invalidInput,
+                "'\(found.title)' has \(held.count) reminders (\(held.count - done) not completed, \(done) completed). Nothing was deleted.",
+                fix: "Only an empty list can be deleted. Move or delete the reminders first.")
+        }
+        if !confirmed {
+            return try ToolOutput(
+                text:
+                    "Nothing deleted. The list '\(found.title)' is empty (0 reminders, completed or not). Ask the user, then call again with 'confirm' true.",
+                payload: ListConfirmNeeded(list: found, reminderCount: 0))
+        }
+        try await backend { try await $0.deleteList(id: id) }
+        return try ToolOutput(
+            text:
+                "Deleted reminder list '\(found.title)'. It held 0 reminders. To undo, call create_reminder_list with its name\(found.source.map { " and source '\($0)'" } ?? "").",
+            payload: ListDeleted(deleted: found.id, list: found, reminderCount: 0))
     }
 }

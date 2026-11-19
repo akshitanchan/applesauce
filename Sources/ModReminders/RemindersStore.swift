@@ -6,6 +6,8 @@ struct ReminderListInfo: Encodable, Sendable, Equatable, Identified {
     let title: String
     let source: String?
     let writable: Bool
+    /// True for the default list for new reminders.
+    var isDefault = false
 }
 
 /// An account that can hold reminder lists, for example iCloud.
@@ -85,4 +87,6 @@ protocol RemindersStore: Sendable {
     func update(id: String, _ patch: ReminderPatch) async throws -> ReminderInfo
     func setCompleted(id: String, _ completed: Bool) async throws -> ReminderInfo
     func delete(id: String) async throws
+    /// Deletes a list. The module has checked that it is empty and not the default list.
+    func deleteList(id: String) async throws
 }
