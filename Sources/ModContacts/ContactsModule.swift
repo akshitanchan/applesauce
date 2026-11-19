@@ -129,6 +129,16 @@ public struct ContactsModule: Module {
                     "addresses": Self.addressList,
                 ],
                 required: ["id"], write: true),
+            ToolSpec(
+                name: "delete_contact",
+                description:
+                    "Delete a contact. It needs 'confirm' true. Without it, nothing is deleted, and the result shows the contact (name, emails, phones) so you can ask the user. The result of a delete has a full copy of the contact in 'contact', and in 'recreate' the arguments for create_contact, so the contact can be made again. Notes are not copied, because the app cannot read them. macOS refuses to delete a contact that has a note, unless the app has a special Apple entitlement. Then the tool returns an error and nothing changes.",
+                properties: [
+                    "id": Self.property("string", "Contact id from search_contacts. Use it as given."),
+                    "confirm": Self.property(
+                        "boolean", "Must be true to delete the contact. Without it, nothing is deleted."),
+                ],
+                required: ["id"], destructive: true, idempotent: true),
         ]
     }
 
@@ -140,6 +150,7 @@ public struct ContactsModule: Module {
         case "get_contact": return try await getContact(args)
         case "create_contact": return try await createContact(args)
         case "update_contact": return try await updateContact(args)
+        case "delete_contact": return try await deleteContact(args)
         default:
             throw ToolError(.unknownTool, "The contacts module has no tool named '\(tool)'.")
         }
@@ -200,6 +211,42 @@ public struct ContactsModule: Module {
         var emails: [LabeledValue]?
         var phones: [LabeledValue]?
         var addresses: [PostalAddress]?
+    }
+
+    fileprivate struct ConfirmNeeded: Encodable {
+        let confirmRequired = true
+        let contact: ContactInfo
+    }
+
+    fileprivate struct Deleted: Encodable {
+        let deleted: String
+        /// Every field that applesauce can read, in the shape of get_contact.
+        let contact: ContactInfo
+        /// The same fields as the arguments of create_contact.
+        let recreate: Recreate
+    }
+
+    /// The arguments of create_contact. An empty list or a missing value is left out.
+    fileprivate struct Recreate: Encodable {
+        var givenName: String?
+        var familyName: String?
+        var organization: String?
+        var jobTitle: String?
+        var emails: [LabeledValue]?
+        var phones: [LabeledValue]?
+        var addresses: [PostalAddress]?
+        var birthday: String?
+
+        init(_ contact: ContactInfo) {
+            givenName = contact.givenName
+            familyName = contact.familyName
+            organization = contact.organization
+            jobTitle = contact.jobTitle
+            emails = contact.emails.isEmpty ? nil : contact.emails
+            phones = contact.phones.isEmpty ? nil : contact.phones
+            addresses = (contact.addressDetails ?? []).isEmpty ? nil : contact.addressDetails
+            birthday = contact.birthday
+        }
     }
 
     private static func labeled(_ item: LabeledValue) -> String {
@@ -339,5 +386,31 @@ extension ContactsModule {
         return try ToolOutput(
             text: "Updated contact: " + Self.describe(updated) + ". The old values are in 'previous'.",
             payload: Updated(contact: updated, previous: previous))
+    }
+}
+
+extension ContactsModule {
+    fileprivate func deleteContact(_ args: Arguments) async throws -> ToolOutput {
+        let id = try args.requiredString("id").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { throw ToolError.invalidInput("'id' is required.") }
+        let confirmed = try args.bool("confirm") == true
+
+        try await access()
+        guard let current = try await backend({ try await $0.contact(id: id) }) else {
+            throw ToolError(
+                .notFound, "No contact has the id '\(id)'.",
+                fix: "Use an id from search_contacts. The contact may have been deleted.")
+        }
+        guard confirmed else {
+            return try ToolOutput(
+                text:
+                    "Nothing deleted. This deletes the contact: \(Self.describe(current)). Ask the user, then call again with 'confirm' true.",
+                payload: ConfirmNeeded(contact: current))
+        }
+        try await backend { try await $0.delete(id: id) }
+        return try ToolOutput(
+            text:
+                "Deleted contact: \(Self.describe(current)). To undo, call create_contact with the fields in 'recreate'. The note is not copied.",
+            payload: Deleted(deleted: current.id, contact: current, recreate: Recreate(current)))
     }
 }

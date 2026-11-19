@@ -143,31 +143,53 @@ actor CNContactsStore: ContactsStore {
         return Self.info(saved, detailed: true)
     }
 
+    func delete(id: String) async throws {
+        let fetched: CNContact
+        do {
+            fetched = try fetch(id)
+        } catch let error as CNError where error.code == .recordDoesNotExist {
+            throw ToolError(
+                .notFound, "No contact has the id '\(id)'.", fix: "Use an id from search_contacts.")
+        } catch {
+            throw Self.failure(error)
+        }
+        guard let contact = fetched.mutableCopy() as? CNMutableContact else {
+            throw ToolError(.internalError, "The Contacts framework gave no editable copy.", fix: "Report this error.")
+        }
+        let request = CNSaveRequest()
+        request.delete(contact)
+        try execute(request, verb: "delete")
+    }
+
     private func fetch(_ id: String) throws -> CNContact {
         try store.unifiedContact(withIdentifier: id, keysToFetch: detailKeys())
     }
 
     /// Runs a save request. Contacts must not return a stale list after it.
-    private func execute(_ request: CNSaveRequest) throws {
+    private func execute(_ request: CNSaveRequest, verb: String = "change") throws {
         cache = nil
         do {
             try store.execute(request)
         } catch {
-            throw Self.saveFailure(error)
+            throw Self.saveFailure(error, verb: verb)
         }
     }
 
     /// macOS refuses to save a contact that has a note when the app has no notes entitlement (error 134092).
-    private static func saveFailure(_ error: Error) -> ToolError {
+    /// `verb` is `change` or `delete`. It words the message.
+    static func saveFailure(_ error: Error, verb: String = "change") -> ToolError {
         let nsError = error as NSError
         if nsError.domain == NSCocoaErrorDomain && nsError.code == 134092 {
             return ToolError(
                 .permissionDenied,
-                "macOS refuses to change this contact. It has a note, and only apps with the Apple Contacts notes entitlement can save such a contact.",
-                fix: "Change this contact in the Contacts app. Nothing was changed.")
+                "macOS refuses to \(verb) this contact. It has a note, and only apps with the Apple Contacts notes entitlement can save such a contact.",
+                fix:
+                    "\(verb.capitalized) this contact in the Contacts app. Nothing was \(verb == "delete" ? "deleted" : "changed")."
+            )
         }
         return ToolError(
-            .internalError, "The Contacts framework could not save the change: \(error.localizedDescription)",
+            .internalError,
+            "The Contacts framework could not \(verb == "delete" ? "delete the contact" : "save the change"): \(error.localizedDescription)",
             fix: "Call the 'doctor' tool. If the error stays, report it.")
     }
 

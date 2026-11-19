@@ -99,4 +99,7 @@ protocol ContactsStore: Sendable {
     func create(_ contact: NewContact) async throws -> ContactInfo
     /// Applies the changes and returns the contact with all fields. The id must exist.
     func update(id: String, _ patch: ContactPatch) async throws -> ContactInfo
+    /// Deletes the contact. It throws `NOT_FOUND` when the id is unknown, and `PERMISSION_DENIED` for a contact
+    /// that macOS will not delete (it has a note), changing nothing.
+    func delete(id: String) async throws
 }

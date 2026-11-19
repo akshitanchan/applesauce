@@ -19,6 +19,9 @@ final class FakeContactsStore: ContactsStore, @unchecked Sendable {
         var calls: [String] = []
         var created: NewContact?
         var updated: (id: String, patch: ContactPatch)?
+        var deleted: String?
+        /// An error that `delete` throws.
+        var deleteError: ToolError?
     }
 
     private let lock = NSLock()
@@ -87,6 +90,12 @@ extension FakeContactsStore {
             $0.updated = (id, patch)
         }
         return read(\.details).first { $0.id == id } ?? read(\.contacts).first { $0.id == id }!
+    }
+
+    func delete(id: String) async throws {
+        write { $0.calls.append("delete") }
+        if let error = read(\.deleteError) { throw error }
+        write { $0.deleted = id }
     }
 }
 
