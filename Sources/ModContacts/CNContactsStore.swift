@@ -153,12 +153,37 @@ actor CNContactsStore: ContactsStore {
         } catch {
             throw Self.failure(error)
         }
+        let cards = linkedCardCount(of: fetched)
+        guard cards <= 1 else {
+            throw ToolError(
+                .invalidInput,
+                "This contact is linked from \(cards) cards (for example iCloud and Gmail). A delete could remove all of them. Nothing was deleted.",
+                fix: "Delete it in the Contacts app, where you can see each linked card.")
+        }
         guard let contact = fetched.mutableCopy() as? CNMutableContact else {
             throw ToolError(.internalError, "The Contacts framework gave no editable copy.", fix: "Report this error.")
         }
         let request = CNSaveRequest()
         request.delete(contact)
         try execute(request, verb: "delete")
+    }
+
+    /// The number of separate cards that Contacts shows as this one contact. The cards are found by name, then
+    /// kept only when the contact says it is unified with them.
+    private func linkedCardCount(of contact: CNContact) -> Int {
+        let name = [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+        let search = name.isEmpty ? contact.organizationName : name
+        guard !search.isEmpty else { return 1 }
+        let request = CNContactFetchRequest(keysToFetch: [CNContactIdentifierKey as CNKeyDescriptor])
+        request.predicate = CNContact.predicateForContacts(matchingName: search)
+        request.unifyResults = false
+        var count = 0
+        try? store.enumerateContacts(with: request) { card, _ in
+            if card.identifier == contact.identifier || contact.isUnifiedWithContact(withIdentifier: card.identifier) {
+                count += 1
+            }
+        }
+        return max(count, 1)
     }
 
     private func fetch(_ id: String) throws -> CNContact {
