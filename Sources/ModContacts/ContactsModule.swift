@@ -132,7 +132,7 @@ public struct ContactsModule: Module {
             ToolSpec(
                 name: "delete_contact",
                 description:
-                    "Delete a contact. It needs 'confirm' true. Without it, nothing is deleted, and the result shows the contact (name, emails, phones) so you can ask the user. The result of a delete has a full copy of the contact in 'contact', and in 'recreate' the arguments for create_contact, so the contact can be made again. Notes are not copied, because the app cannot read them. macOS refuses to delete a contact that has a note, unless the app has a special Apple entitlement. Then the tool returns an error and nothing changes.",
+                    "Delete a contact. It needs 'confirm' true. Without it, nothing is deleted, and the result shows the contact (name, emails, phones) so you can ask the user. The result of a delete has a full copy of the contact in 'contact', and in 'recreate' the arguments for create_contact, so the contact can be made again. Notes are not copied, because the app cannot read them. macOS refuses to delete a contact that has a note, unless the app has a special Apple entitlement. Then the tool returns an error and nothing changes. A contact linked from several cards (for example iCloud and Gmail) is refused: delete it in the Contacts app.",
                 properties: [
                     "id": Self.property("string", "Contact id from search_contacts. Use it as given."),
                     "confirm": Self.property(

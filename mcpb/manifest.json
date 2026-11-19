@@ -277,7 +277,7 @@
     },
     {
       "name": "delete_contact",
-      "description": "Delete a contact. Needs confirm true. Without it nothing is deleted, and the result shows the contact. The result of a delete has a full copy and the arguments for create_contact. Notes are not copied. macOS refuses to delete a contact that has a note, and then nothing changes."
+      "description": "Delete a contact. Needs confirm true. Without it nothing is deleted, and the result shows the contact. The result of a delete has a full copy and the arguments for create_contact. Notes are not copied. macOS refuses to delete a contact that has a note, and then nothing changes. A contact linked from several cards is refused."
     },
     {
       "name": "list_shortcuts",
