@@ -116,6 +116,10 @@
       "description": "Delete an event. For a recurring event, span chooses one occurrence or all later ones."
     },
     {
+      "name": "delete_calendar",
+      "description": "Delete an empty calendar. It is refused when the calendar has an event from 10 years back to 10 years ahead, is read-only, subscribed or a birthday calendar, or is the default calendar. Needs confirm true, also for an empty calendar. Without it nothing is deleted."
+    },
+    {
       "name": "list_reminder_lists",
       "description": "List all reminder lists with their id, source and whether they allow changes."
     },
@@ -152,6 +156,10 @@
       "description": "Delete a reminder."
     },
     {
+      "name": "delete_reminder_list",
+      "description": "Delete an empty reminder list. It is refused when the list has any reminder (completed or not), is read-only, or is the default list. Needs confirm true, also for an empty list. Without it nothing is deleted."
+    },
+    {
       "name": "list_accounts",
       "description": "List the mail accounts with their id, name and email addresses."
     },
@@ -174,6 +182,10 @@
     {
       "name": "create_draft",
       "description": "Save a plain text draft in Mail, with files attached when attachments is given. Nothing is sent. If Mail is not running, applesauce opens it hidden in the background and leaves it open."
+    },
+    {
+      "name": "send_draft",
+      "description": "Send a draft that is saved in a Drafts mailbox, given its id from search_mail. Mail cannot send a saved draft, so applesauce builds a new message from it, sends it, and then deletes the old draft. Without confirm true nothing is sent: the result shows the subject, sender, recipients and attachment names. Sending cannot be undone."
     },
     {
       "name": "send_mail",
@@ -244,6 +256,10 @@
       "description": "Delete a note. Notes moves it to the Recently Deleted folder, where it stays for 30 days."
     },
     {
+      "name": "delete_folder",
+      "description": "Delete an empty Notes folder. It is refused when the folder holds a note or a subfolder, for built-in folders, and for the default or only folder of an account. Needs confirm true, also for an empty folder. Without it nothing is deleted."
+    },
+    {
       "name": "search_contacts",
       "description": "Find contacts. The query matches name, organization and email (any case), and phone numbers when the query looks like a phone number. All words of the query must match. Returns name, organization, emails and phones. Use get_contact for the full card. Notes are never returned."
     },
@@ -258,6 +274,10 @@
     {
       "name": "update_contact",
       "description": "Change a contact. Text fields replace the old value. Emails and phones change with add and remove arguments. The result has the old values of the changed fields. Notes are not supported."
+    },
+    {
+      "name": "delete_contact",
+      "description": "Delete a contact. Needs confirm true. Without it nothing is deleted, and the result shows the contact. The result of a delete has a full copy and the arguments for create_contact. Notes are not copied. macOS refuses to delete a contact that has a note, and then nothing changes."
     },
     {
       "name": "list_shortcuts",

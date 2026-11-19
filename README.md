@@ -20,15 +20,15 @@ applesauce is one small native program, written in Swift. It lets an AI assistan
 
 ## Tools
 
-50 tools in 8 modules, plus `doctor`.
+55 tools in 8 modules, plus `doctor`.
 
 | Module | Tools |
 |---|---|
-| calendar | `list_calendars`, `list_events`, `search_events`, `get_event`, `create_event`, `update_event`, `delete_event` |
-| reminders | `list_reminder_lists`, `create_reminder_list`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder` |
-| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_mail`, `forward_message`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
-| notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `update_note`, `create_folder`, `move_note`, `delete_note` |
-| contacts | `search_contacts`, `get_contact`, `create_contact`, `update_contact` |
+| calendar | `list_calendars`, `list_events`, `search_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `delete_calendar` |
+| reminders | `list_reminder_lists`, `create_reminder_list`, `list_reminders`, `search_reminders`, `get_reminder`, `create_reminder`, `update_reminder`, `complete_reminder`, `delete_reminder`, `delete_reminder_list` |
+| mail | `list_accounts`, `list_mailboxes`, `search_mail`, `get_message`, `get_mail_attachment`, `create_draft`, `send_draft`, `send_mail`, `forward_message`, `reply`, `move_message`, `flag_message`, `mark_read`, `delete_message` |
+| notes | `list_folders`, `search_notes`, `get_note`, `get_note_attachment`, `create_note`, `append_to_note`, `update_note`, `create_folder`, `move_note`, `delete_note`, `delete_folder` |
+| contacts | `search_contacts`, `get_contact`, `create_contact`, `update_contact`, `delete_contact` |
 | shortcuts | `list_shortcuts`, `run_shortcut` |
 | spotlight | `search_files` |
 | system | `get_clipboard`, `set_clipboard`, `notify`, `open` |
@@ -122,12 +122,15 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 
 - `--read-only` (or the read-only switch in the .mcpb dialog) hides every tool that changes data.
 - `send_mail`, `forward_message` and `reply` send nothing unless the call has `confirm: true`. Without it they save a draft.
+- `send_draft` sends a saved draft only with `confirm: true`. Without it, nothing is sent, and the result shows the subject, the sender, the recipients and the attachment names. Mail cannot send a saved draft directly. So applesauce builds a new plain text message from the draft, sends it, and then moves the old draft to the Trash. Formatting of a rich text draft is lost. A message outside a Drafts mailbox is refused.
+- `delete_folder` (Notes), `delete_calendar` and `delete_reminder_list` delete only an empty container, and only with `confirm: true`. Each one refuses a container that holds anything, and says what it found. They also refuse the built-in, default, read-only, subscribed and birthday ones. `delete_calendar` looks for events from 10 years back to 10 years ahead. Events outside that range are not checked.
+- `delete_contact` needs `confirm: true`. Without it, nothing is deleted, and the result shows the contact.
 - Tools that delete, send or move mail are marked `destructiveHint: true`. Most MCP clients ask you before they run them.
 - Tools that only read are marked `readOnlyHint: true`.
 - `run_shortcut` runs a shortcut, and a shortcut can do anything on your Mac. Turn off the `shortcuts` module if you do not want that.
 - Every call has a time limit (30 seconds, and 120 seconds for a permission prompt).
 - Attachments are saved only by `get_mail_attachment` and `get_note_attachment`. Both need `confirm: true` on every call, and `--read-only` hides them. A file is limited to 25 MB. It goes to `~/Library/Caches/applesauce/attachments` (private to your user) and is deleted after 24 hours.
-- Contact notes are never read or written. macOS refuses to save a change to a contact that has a note, unless the app has a special Apple entitlement. `update_contact` then returns an error and changes nothing.
+- Contact notes are never read or written. macOS refuses to save a change to a contact that has a note, unless the app has a special Apple entitlement. `update_contact` and `delete_contact` then return an error and change nothing.
 
 ### What can be undone
 
@@ -142,6 +145,11 @@ After an update, ask your assistant to run the `doctor` tool, or run `npx -y app
 | Delete all later occurrences of a recurring event | None. | `confirm: true` |
 | Change all later occurrences of a recurring event (`update_event` with `span: "future"`) | None. | `confirm: true` |
 | Change a contact with `update_contact` | The result has `previous` with the old values of the changed fields. | none |
+| Delete a contact (`delete_contact`) | The result has a full copy and `recreate`, the arguments for `create_contact`. The note is not copied. The new contact has a new id. | `confirm: true` |
+| Send a draft (`send_draft`) | None. The sent message cannot be called back. The old draft is in the Trash. | `confirm: true` |
+| Delete an empty Notes folder (`delete_folder`) | Create the folder again with `create_folder`. Notes may keep a deleted folder in Recently Deleted for a while. | `confirm: true` |
+| Delete an empty calendar (`delete_calendar`) | Nothing is lost except the name and the settings. The tools cannot create a calendar. | `confirm: true` |
+| Delete an empty reminder list (`delete_reminder_list`) | The result has a copy of the list, so `create_reminder_list` can make it again. | `confirm: true` |
 
 Without `confirm: true`, a gated call changes nothing and says why. Your assistant can still pass `confirm: true` by itself, so `--read-only` is the only hard block.
 
